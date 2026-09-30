@@ -82,7 +82,11 @@ per-decision input bundle.
     receipt validation: minimum admitted counts, scoped source/item/instrument,
     and maximum age against a declared observation/publication/effective timestamp.
     Requirements are retained in the bundle digest; no production limits were set.
-- Latest local checks on 2026-09-30: 406 tests passed; 2 actual symlink tests
+- Implemented `InputReplayRequest`, `InputReplayResult`, and `replay_inputs` for
+    strictly increasing UTC cutoffs over pinned local inputs. Each cutoff runs
+    the existing bundle builder; failure raises with its index/cutoff and chained
+    cause, without returning partial results. Results bind the complete request.
+- Latest local checks on 2026-09-30: 423 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -92,7 +96,8 @@ per-decision input bundle.
 ## In Progress
 
 - Actual engine and signal adapters, engine-specific input materialization,
-    and point-in-time replay remain unimplemented. Local ports and receipts do
+    and engine-driven strategy replay remain unimplemented. Local input replay
+    now exercises the data gates, but local ports and receipts do
     not constitute an executable trading system or independent certification.
 - Phase 0 ADRs for point-in-time and revision semantics, source/data rights,
     Azure service selection, and Qlib/LEAN comparison metrics and tolerances.
@@ -113,13 +118,26 @@ per-decision input bundle.
 
 ## Next Executable Step
 
-Build a local multi-cutoff replay workflow that materializes bundles with pinned
-source policies, revision evidence, and explicit data requirements. Use synthetic
-fixtures to demonstrate late revisions, changing universe membership, and stale
-or missing inputs over time; keep real engines and external collection disabled.
+Define a typed daily-price normalization contract and a deterministic local
+fixture adapter from verified raw bytes. Check instrument/session identity,
+price/volume constraints, and normalized content hashes before consuming prices.
+Keep external sources, actual engines, and broker execution disabled.
 
 ## Known Boundaries
 
+- Local replay materializes data bundles only; it does not simulate a strategy,
+    calculate returns, or execute an engine. Request cutoffs must be nonempty,
+    aware, unique, and increasing; no sorting or deduplication silently repairs them.
+- Replay pins one snapshot, source policy, requirement tuple, and unscoped policy
+    across all cutoffs. Policy activation changes and evolving snapshots require
+    a separate workflow. Requirements must be provided explicitly; `()` still
+    means no freshness/completeness assertions.
+- Replay results are held in memory and returned only after all cutoffs pass.
+    Errors preserve the first failing cutoff and cause, not earlier bundles.
+    This is not a filesystem transaction or a race-proof archive snapshot.
+- `result.validate_against_request(request)` checks request digest, exact cutoff
+    coverage and declared provenance. It does not rerun I/O or prove record-level
+    completeness/authenticity. Direct receipt construction is not verified replay.
 - `data_requirements` is explicit, in-process metadata, not a signed operator
     policy. The empty tuple preserves selection-only behavior and makes no
     freshness/completeness claim. Production consumers must require the correct
@@ -249,6 +267,7 @@ or missing inputs over time; keep real engines and external collection disabled.
 - Local as-of selector: `src/ats/data/asof.py`
 - Local artifact resolver: `src/ats/data/artifacts.py`
 - Per-decision input bundle: `src/ats/data/bundle.py`
+- Local multi-cutoff replay: `src/ats/data/replay.py`
 - Availability/freshness rules: `src/ats/data/requirements.py`
 - Historical universe contract: `src/ats/domain/universe.py`
 - Universe artifact schema: `schemas/data/universe-membership.v1.schema.json`
@@ -276,6 +295,6 @@ or missing inputs over time; keep real engines and external collection disabled.
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
     all four schema generator checks (nine schemas), and `uv run pytest -q`
-    (406 passed, 2 skipped for Windows symlink creation privileges)
+    (423 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)

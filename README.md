@@ -264,3 +264,27 @@ selection-only use; it is not a completeness guarantee. Requirements currently
 come from the caller, not an authenticated operator policy store, and production
 consumers must prevent strategy-controlled omission or relaxation. No operational
 thresholds or repository policy approvals were introduced.
+
+## Local Input Replay
+
+Create `InputReplayRequest` with `snapshot`, `source_policy`, ordered `cutoffs`,
+and explicit `data_requirements`, plus optional `revision_orders` and
+`unscoped_policy`. Call `ats.data.replay_inputs(resolver, request)` to build all
+per-decision bundles using the same pinned inputs. Cutoffs must be aware,
+strictly increasing, and within snapshot/manifest horizons. Equivalent timezone
+representations are normalized to UTC; invalid schedules are not silently sorted.
+
+On success, `InputReplayResult` contains the complete ordered bundles and the
+request digest. `result.validate_against_request(request)` checks declared
+provenance and exact cutoff coverage, and `result.content_digest()` supports
+repeat-run comparisons. No input archive, policy, or source file is modified.
+
+The first failed cutoff raises `InputReplayError` with `index`, `cutoff`, and the
+original chained cause; earlier bundles are not returned. There is no fallback
+to prior data or partially successful replay. The result is kept in memory, not
+published transactionally to storage. The archive must remain trusted/read-only.
+
+This workflow replays input validation, not trading strategies or returns. It
+does not run Qlib/LEAN, authenticate policies, calculate metrics, or submit orders.
+An explicit empty requirement tuple still makes no freshness guarantee. Actual
+engine integration and policy/snapshot changes across cutoffs remain separate work.

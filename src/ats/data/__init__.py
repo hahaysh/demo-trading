@@ -8,6 +8,12 @@ from ats.data.bundle import (
     UnscopedRecordPolicy,
     build_decision_inputs,
 )
+from ats.data.replay import (
+    InputReplayError,
+    InputReplayRequest,
+    InputReplayResult,
+    replay_inputs,
+)
 from ats.data.requirements import (
     DataRequirementError,
     FreshnessBasis,
@@ -20,11 +26,15 @@ __all__ = [
     "DecisionInputBundle",
     "DataRequirementError",
     "FreshnessBasis",
+    "InputReplayError",
+    "InputReplayRequest",
+    "InputReplayResult",
     "LocalArtifactResolver",
     "RevisionOrder",
     "SourceEligibilityError",
     "SourceDataRequirement",
     "UnscopedRecordPolicy",
     "build_decision_inputs",
+    "replay_inputs",
     "select_records_as_of",
 ]

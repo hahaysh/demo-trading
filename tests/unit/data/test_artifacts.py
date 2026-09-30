@@ -19,6 +19,12 @@ from ats.data.bundle import (
 from ats.data.bundle import (
     build_decision_inputs as build_inputs_with_policy,
 )
+from ats.data.replay import (
+    InputReplayError,
+    InputReplayRequest,
+    InputReplayResult,
+    replay_inputs,
+)
 from ats.data.requirements import (
     DataRequirementError,
     SourceDataRequirement,
@@ -66,6 +72,268 @@ build_decision_inputs = partial(
 
 def _digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _replay_request(root: Path) -> InputReplayRequest:
+    early = FREEZE - timedelta(minutes=2)
+    correction_at = FREEZE - timedelta(minutes=1)
+    first = PointInTimeRecord.model_validate(
+        {
+            **_record(_store(root, b"original"), observed_at=early).model_dump(),
+            "instrument_id": "krx-005930",
+        }
+    )
+    corrected = PointInTimeRecord.model_validate(
+        {
+            **first.model_dump(),
+            "revision": "rev-002",
+            "observed_at": correction_at,
+            "raw_payload_digest": _store(root, b"correction"),
+        }
+    )
+    second = PointInTimeRecord.model_validate(
+        {
+            **first.model_dump(),
+            "source_item_id": "second-item",
+            "instrument_id": "krx-000660",
+            "raw_payload_digest": _store(root, b"second instrument"),
+        }
+    )
+    manifest = _universe(
+        _member(), _member(instrument_id="krx-000660", effective_from=correction_at)
+    )
+    reference = _universe_reference(root, manifest)
+    snapshot = DataSnapshot.model_validate(
+        {
+            **_snapshot(first, corrected, second).model_dump(),
+            "universe_membership": reference,
+        }
+    )
+    order = _order(
+        _store(root, b"synthetic correction ordering"), observed_at=correction_at
+    )
+    return InputReplayRequest(
+        snapshot=snapshot,
+        source_policy=_source_policy(),
+        cutoffs=(early, correction_at, FREEZE),
+        revision_orders=(order,),
+        data_requirements=(_requirement(max_age_seconds=120),),
+    )
+
+
+def test_replay_combines_late_revisions_membership_and_freshness(
+    tmp_path: Path,
+) -> None:
+    request = _replay_request(tmp_path)
+    before = request.model_dump_json()
+    resolver = LocalArtifactResolver(tmp_path)
+    result = replay_inputs(resolver, request)
+    assert result.request_digest == evidence_digest(request)
+    assert [bundle.cutoff for bundle in result.bundles] == list(request.cutoffs)
+    assert [record.revision for record in result.bundles[0].records] == ["rev-001"]
+    assert len(result.bundles[0].members) == 1
+    assert result.bundles[0].revision_orders == ()
+    assert len(result.bundles[1].members) == 2
+    assert {record.revision for record in result.bundles[1].records} == {
+        "rev-001",
+        "rev-002",
+    }
+    assert result.bundles[1].revision_orders == request.revision_orders
+    assert all(
+        bundle.data_requirements == request.data_requirements
+        for bundle in result.bundles
+    )
+    assert request.model_dump_json() == before
+    assert replay_inputs(resolver, request).content_digest() == result.content_digest()
+    assert InputReplayResult.model_validate_json(result.model_dump_json()) == result
+    with pytest.raises(ValidationError):
+        result.__setattr__("bundles", ())
+
+
+@pytest.mark.parametrize(
+    "cutoffs",
+    [
+        (),
+        (FREEZE, FREEZE),
+        (FREEZE, FREEZE - timedelta(seconds=1)),
+        (FREEZE + timedelta(seconds=1),),
+        (datetime(2026, 9, 30),),
+        (FREEZE, FREEZE.astimezone(timezone(timedelta(hours=9)))),
+    ],
+)
+def test_replay_rejects_invalid_schedule_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cutoffs: tuple[datetime, ...]
+) -> None:
+    request = _replay_request(tmp_path)
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("invalid replay schedule must not reach I/O")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(ValidationError):
+        replay_inputs(
+            LocalArtifactResolver(tmp_path),
+            request.model_copy(update={"cutoffs": cutoffs}),
+        )
+
+
+def test_replay_normalizes_timezone_equivalent_schedules(tmp_path: Path) -> None:
+    request = _replay_request(tmp_path)
+    local = InputReplayRequest.model_validate(
+        {
+            **request.model_dump(),
+            "cutoffs": tuple(
+                cutoff.astimezone(timezone(timedelta(hours=9)))
+                for cutoff in request.cutoffs
+            ),
+        }
+    )
+    assert local == request
+    assert replay_inputs(LocalArtifactResolver(tmp_path), request) == replay_inputs(
+        LocalArtifactResolver(tmp_path), local
+    )
+
+
+@pytest.mark.parametrize("failure", ["stale", "missing", "corrupt", "ambiguous"])
+def test_replay_later_failure_has_cutoff_and_cause_without_partial_result(
+    tmp_path: Path, failure: str
+) -> None:
+    request = _replay_request(tmp_path)
+    payload = request.model_dump()
+    expected_index = 1
+    if failure == "stale":
+        payload["data_requirements"] = (_requirement(max_age_seconds=90),)
+        expected_index = 2
+    elif failure == "ambiguous":
+        payload["revision_orders"] = ()
+    else:
+        digest = request.snapshot.records[1].raw_payload_digest
+        path = tmp_path / "sha256" / digest.removeprefix("sha256:")
+        if failure == "missing":
+            path.unlink()
+        else:
+            path.write_bytes(b"tampered correction")
+    request = InputReplayRequest.model_validate(payload)
+    resolver = LocalArtifactResolver(tmp_path)
+    early_request = InputReplayRequest.model_validate(
+        {**request.model_dump(), "cutoffs": request.cutoffs[:1]}
+    )
+    assert len(replay_inputs(resolver, early_request).bundles) == 1
+    with pytest.raises(InputReplayError) as caught:
+        replay_inputs(resolver, request)
+    assert caught.value.index == expected_index
+    assert caught.value.cutoff == request.cutoffs[expected_index]
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert not hasattr(caught.value, "bundles")
+
+
+def test_replay_missing_required_data_fails_at_first_cutoff(tmp_path: Path) -> None:
+    request = _replay_request(tmp_path)
+    request = InputReplayRequest.model_validate(
+        {
+            **request.model_dump(),
+            "data_requirements": (
+                _requirement(instrument_id="krx-000660", max_age_seconds=120),
+            ),
+        }
+    )
+    with pytest.raises(InputReplayError) as caught:
+        replay_inputs(LocalArtifactResolver(tmp_path), request)
+    assert caught.value.index == 0
+    assert "missing required data" in str(caught.value.__cause__)
+
+
+def test_replay_rejects_inactive_or_late_policy_and_duplicate_requirements(
+    tmp_path: Path,
+) -> None:
+    request = _replay_request(tmp_path)
+    for metadata in [
+        {**request.source_policy.metadata.model_dump(), "approved_at": FREEZE},
+        {
+            **request.source_policy.metadata.model_dump(),
+            "status": "DRAFT",
+            "approved_at": None,
+            "approved_by": None,
+        },
+    ]:
+        policy = SourceAllowlist.model_validate(
+            {**request.source_policy.model_dump(), "metadata": metadata}
+        )
+        with pytest.raises(ValidationError, match="first cutoff"):
+            InputReplayRequest.model_validate(
+                {**request.model_dump(), "source_policy": policy}
+            )
+    with pytest.raises(ValidationError, match="unique"):
+        InputReplayRequest.model_validate(
+            {
+                **request.model_dump(),
+                "data_requirements": (_requirement(), _requirement()),
+            }
+        )
+
+
+def test_replay_result_rejects_reordered_or_mixed_input_bundles(tmp_path: Path) -> None:
+    result = replay_inputs(LocalArtifactResolver(tmp_path), _replay_request(tmp_path))
+    with pytest.raises(ValidationError, match="strictly increasing"):
+        InputReplayResult(
+            request_digest=result.request_digest,
+            bundles=tuple(reversed(result.bundles)),
+        )
+    last = DecisionInputBundle.model_validate(
+        {**result.bundles[-1].model_dump(), "data_requirements": ()}
+    )
+    with pytest.raises(ValidationError, match="share pinned"):
+        InputReplayResult(
+            request_digest=result.request_digest, bundles=(*result.bundles[:-1], last)
+        )
+
+
+def test_replay_receipt_requires_complete_schedule_and_exact_request(
+    tmp_path: Path,
+) -> None:
+    request = _replay_request(tmp_path)
+    result = replay_inputs(LocalArtifactResolver(tmp_path), request)
+    result.validate_against_request(request)
+    partial_result = InputReplayResult(
+        request_digest=result.request_digest, bundles=result.bundles[:1]
+    )
+    with pytest.raises(ValueError, match="exact requested cutoffs"):
+        partial_result.validate_against_request(request)
+    changed_request = InputReplayRequest.model_validate(
+        {**request.model_dump(), "data_requirements": ()}
+    )
+    with pytest.raises(ValueError, match="request digest"):
+        result.validate_against_request(changed_request)
+    changed_bundles = tuple(
+        DecisionInputBundle.model_validate(
+            {**bundle.model_dump(), "data_requirements": ()}
+        )
+        for bundle in result.bundles
+    )
+    changed_result = InputReplayResult(
+        request_digest=result.request_digest, bundles=changed_bundles
+    )
+    with pytest.raises(ValueError, match="requested provenance"):
+        changed_result.validate_against_request(request)
+
+
+def test_replay_hash_changes_when_requirements_or_schedule_change(
+    tmp_path: Path,
+) -> None:
+    request = _replay_request(tmp_path)
+    resolver = LocalArtifactResolver(tmp_path)
+    result = replay_inputs(resolver, request)
+    relaxed = InputReplayRequest.model_validate(
+        {
+            **request.model_dump(),
+            "data_requirements": (_requirement(max_age_seconds=121),),
+        }
+    )
+    shorter = InputReplayRequest.model_validate(
+        {**request.model_dump(), "cutoffs": request.cutoffs[:2]}
+    )
+    assert replay_inputs(resolver, relaxed).content_digest() != result.content_digest()
+    assert replay_inputs(resolver, shorter).content_digest() != result.content_digest()
 
 
 def _requirement(**changes: object) -> SourceDataRequirement:

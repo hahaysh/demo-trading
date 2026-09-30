@@ -94,9 +94,9 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Exercise a local multi-cutoff replay workflow with pinned source policies and
-explicit requirements, using synthetic fixtures for revisions, universe changes,
-and data outages. Review collection-time licensing, policy activation, and source
+Define deterministic daily-price normalization from verified synthetic raw payloads,
+including instrument/session identity, value validation, and normalized-content
+hash checks. Review collection-time licensing, policy activation, and source
 completeness before real connectors or engine replay. All approval gates remain.
 
 ## Implemented Local Artifact Verification
@@ -226,7 +226,39 @@ These checks do not prove dataset completeness, source timestamp truth, source
 heartbeat health, or per-trading-session freshness. Effective time is not an
 automatic substitute for an economic observation timestamp.
 
+## Implemented Local Multi-Cutoff Replay
+
+`replay_inputs` takes a frozen `InputReplayRequest` containing a snapshot, source
+policy, explicit requirement tuple, revision orders, unscoped policy, and ordered
+cutoffs. It revalidates even unchecked model copies, normalizes cutoffs to UTC,
+rejects duplicate/reversed/out-of-horizon schedules, and requires the source policy
+to be approved by the first cutoff before reading any artifacts.
+
+Each cutoff uses `build_decision_inputs` unchanged. Earlier cutoffs do not see
+later raw observations or revision claims. The result records a digest of the
+entire request and all ordered bundles; all share the pinned input provenance.
+`validate_against_request` verifies the full cutoff sequence, request digest,
+snapshot, source policy, universe reference, requirements, and applicable orders.
+
+The first data/policy/I/O failure raises `InputReplayError` with a zero-based
+index, UTC cutoff, and original exception as its cause. No prior bundles are
+returned. Unexpected exceptions also propagate; there is no fallback, retry,
+incremental publication, or automatic quarantine. This all-or-error API is not a
+filesystem transaction. The trusted archive must still resist concurrent writes.
+
+These request/result types are in-process models, not new persisted schemas.
+The result does not include the full raw snapshot; its request digest references
+that archive and includes future claims present in the request. A result checksum
+is a reproducibility aid, not a signature or proof that a real engine ran.
+One policy and requirement set are pinned for the whole replay. Policy/snapshot
+changes, incremental updates, metric calculation, and actual trading remain out
+of scope. Synthetic fixture thresholds do not approve operational settings.
+
 ## Acceptance Evidence
+
+- Local replay tests in `tests/unit/data/test_artifacts.py` exercise late revisions,
+  new memberships, stale/missing/corrupt data, schedule validation, deterministic
+  rebuilds, and incomplete/mismatched result receipts.
 
 - `tests/unit/domain/test_research.py`: deterministic typed doubles, pre-dispatch
   input rejection, exact output binding, failed runs, exception propagation,
