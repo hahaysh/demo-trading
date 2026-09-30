@@ -12,8 +12,51 @@ from ats.data.artifacts import LocalArtifactResolver
 from ats.data.asof import RevisionOrder
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.governance import evidence_digest
-from ats.domain.strategy import DatasetSnapshotRef, FrozenModel, Identifier
+from ats.domain.policy import (
+    PolicyStatus,
+    RightsClass,
+    SourceAllowlist,
+    SourceEntry,
+    SourceReviewState,
+)
+from ats.domain.strategy import DatasetSnapshotRef, FrozenModel, Identifier, PolicyRef
 from ats.domain.universe import UniverseMember
+
+
+class SourceEligibilityError(ValueError):
+    """The supplied source policy does not permit use of an input."""
+
+
+def _approved_sources(
+    policy: SourceAllowlist, cutoff: datetime
+) -> dict[str, SourceEntry]:
+    if (
+        policy.metadata.status is not PolicyStatus.APPROVED
+        or policy.metadata.approved_at is None
+        or policy.metadata.approved_at.astimezone(UTC) > cutoff
+    ):
+        raise SourceEligibilityError("source policy must be approved by the cutoff")
+    return {source.source_id: source for source in policy.sources}
+
+
+def _require_source(sources: dict[str, SourceEntry], source_id: str) -> SourceEntry:
+    source = sources.get(source_id)
+    if (
+        source is None
+        or not source.enabled
+        or source.legal_review is not SourceReviewState.APPROVED
+        or source.rights.classification is RightsClass.PENDING_REVIEW
+    ):
+        raise SourceEligibilityError(f"source is not eligible: {source_id}")
+    return source
+
+
+def _require_record(sources: dict[str, SourceEntry], record: PointInTimeRecord) -> None:
+    source = _require_source(sources, record.source_id)
+    if record.rights_class != source.rights.classification:
+        raise SourceEligibilityError(
+            f"record rights do not match source policy: {record.source_id}"
+        )
 
 
 class UnscopedRecordPolicy(StrEnum):
@@ -33,6 +76,7 @@ class DecisionInputBundle(FrozenModel):
 
     snapshot: DatasetSnapshotRef
     cutoff: AwareDatetime
+    source_policy: PolicyRef
     universe: UniverseMembershipManifest
     members: tuple[UniverseMember, ...]
     revision_orders: tuple[RevisionOrder, ...]
@@ -89,12 +133,31 @@ class DecisionInputBundle(FrozenModel):
     def content_digest(self) -> str:
         return evidence_digest(self)
 
+    def validate_source_policy(self, policy: SourceAllowlist) -> None:
+        """Resolve policy identity and receipt eligibility, not signatures or hidden history."""
+        bundle = DecisionInputBundle.model_validate(self.model_dump())
+        policy = SourceAllowlist.model_validate(policy.model_dump())
+        if (
+            bundle.source_policy.policy_id != policy.metadata.policy_id
+            or bundle.source_policy.version != policy.metadata.version
+            or bundle.source_policy.digest != evidence_digest(policy)
+        ):
+            raise SourceEligibilityError("bundle source policy reference mismatch")
+        sources = _approved_sources(policy, bundle.cutoff.astimezone(UTC))
+        for record in bundle.records:
+            _require_record(sources, record)
+        for excluded in bundle.excluded:
+            _require_source(sources, excluded.source_id)
+        for order in bundle.revision_orders:
+            _require_source(sources, order.source_id)
+
 
 def build_decision_inputs(
     resolver: LocalArtifactResolver,
     snapshot: DataSnapshot,
     *,
     at: datetime,
+    source_policy: SourceAllowlist,
     revision_orders: tuple[RevisionOrder, ...] = (),
     unscoped_policy: UnscopedRecordPolicy = UnscopedRecordPolicy.EXCLUDE,
 ) -> DecisionInputBundle:
@@ -107,6 +170,14 @@ def build_decision_inputs(
     orders = tuple(
         RevisionOrder.model_validate(order.model_dump()) for order in revision_orders
     )
+    source_policy = SourceAllowlist.model_validate(source_policy.model_dump())
+    sources = _approved_sources(source_policy, cutoff)
+    for record in snapshot.records:
+        if record.observed_at.astimezone(UTC) <= cutoff:
+            _require_record(sources, record)
+    for order in orders:
+        if order.observed_at.astimezone(UTC) <= cutoff:
+            _require_source(sources, order.source_id)
     selected = resolver.select_verified_records_as_of(
         snapshot, at=cutoff, revision_orders=orders
     )
@@ -143,6 +214,11 @@ def build_decision_inputs(
             digest=snapshot.content_digest(),
         ),
         cutoff=cutoff,
+        source_policy=PolicyRef(
+            policy_id=source_policy.metadata.policy_id,
+            version=source_policy.metadata.version,
+            digest=evidence_digest(source_policy),
+        ),
         universe=snapshot.universe_membership,
         members=members,
         revision_orders=tuple(applicable),

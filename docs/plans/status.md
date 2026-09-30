@@ -71,7 +71,14 @@ per-decision input bundle.
     snapshot/cutoff/universe/revision provenance, scope filtering, and explicit
     exclusion reasons. Unscoped records are excluded unless explicitly included.
     Visible raw history is verified before filtering; failures return no bundle.
-- Latest local checks on 2026-09-30: 352 tests passed; 2 actual symlink tests
+- Added mandatory source-allowlist validation to bundle construction before
+    artifact reads. Policies must be approved by the cutoff; every visible raw
+    revision and applicable revision order must use an eligible source. Record
+    rights must match the policy classification, including superseded/excluded data.
+- Bundle provenance now includes the exact source policy ID, version, and digest;
+    `validate_source_policy` resolves that reference and rechecks receipt eligibility.
+    Repository policies remain unchanged and `DRAFT`; tests use synthetic approvals.
+- Latest local checks on 2026-09-30: 378 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -102,10 +109,10 @@ per-decision input bundle.
 
 ## Next Executable Step
 
-Apply the operator-owned source allowlist to local input bundle construction.
-Bind the exact policy version/digest and test that draft, inactive, unlisted, or
-unapproved sources cannot supply usable inputs. Use synthetic fixtures only;
-do not approve repository policies or enable external collection.
+Define explicit per-source data availability and freshness requirements for local
+bundle construction. Test missing/stale required inputs and distinguish observation
+time from economic data age. Do not invent freshness limits or approve repository
+policies; keep the first implementation and evidence on synthetic local fixtures.
 
 ## Known Boundaries
 
@@ -118,11 +125,24 @@ do not approve repository policies or enable external collection.
     Consumers must reverify referenced payload bytes on subsequent reads.
 - Bundle identity includes snapshot digest, normalized UTC cutoff, universe
     reference, effective members, applicable revision orders, unscoped policy,
-    admitted records, and exclusions. It inherits the snapshot's order-sensitive
+    source-policy reference, admitted records, and exclusions. It inherits the snapshot's order-sensitive
     identity; it is not an order-independent hash of the complete input archive.
+- Bundle construction requires a revalidated source policy and enforces declared
+    eligibility before I/O, even for records later excluded by universe scope.
+    Future observations/order claims are outside that earlier cutoff's source check.
+- Callers must supply a trusted operator-selected policy. Neither approval
+    signatures, historical policy activation/revocation, nor collection-time rights
+    are authenticated here. The policy approval date is checked against the bundle
+    cutoff, not every historical record's collection timestamp.
 - Bundle construction is not yet wired to engine ports and does not enforce
-    source approval, freshness, normalized-content validity, membership evidence
-    authenticity, or trade authorization. Empty bundles do not authorize signals.
+    freshness, retention, rate limiting, normalized-content validity, membership
+    evidence authenticity, or trade authorization. Universe evidence references
+    lack source IDs and are not covered by this source gate. Empty bundles do not
+    authorize signals. Low-level resolver/selector methods remain policy-free.
+- Direct bundle construction is not evidence the builder ran. The receipt's
+    `validate_source_policy` rechecks admitted records, exclusion source IDs, and
+    revision-order sources; discarded raw revisions require rebuilding from the
+    original snapshot for a complete eligibility check.
 - As-of selection is local and not wired into an actual engine. `RevisionOrder`
     evidence and observation timestamps are caller-supplied claims. The resolver
     verifies evidence bytes, not their interpretation or source-specific
@@ -239,6 +259,6 @@ do not approve repository policies or enable external collection.
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
     all four schema generator checks (nine schemas), and `uv run pytest -q`
-    (352 passed, 2 skipped for Windows symlink creation privileges)
+    (378 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)

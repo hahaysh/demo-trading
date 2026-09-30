@@ -94,10 +94,10 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Apply source allowlist eligibility to the local input builder with exact policy
-provenance and negative tests for unapproved sources. Use local fixtures without
-approving policies or activating collection. Review source-specific ordering and
-completeness before real connectors or engine replay. All approval gates remain.
+Specify explicit source availability and freshness requirements for local bundles,
+with synthetic missing/stale-input tests and no invented operator thresholds.
+Review collection-time licensing, policy activation, and source completeness
+before real connectors or engine replay. All approval gates remain.
 
 ## Implemented Local Artifact Verification
 
@@ -172,8 +172,34 @@ identity still includes its original ordering and creation metadata. Future
 orders are not part of the applied provenance, whereas the snapshot digest still
 binds its entire archive. The bundle is an in-process receipt, not a new persisted
 schema, proof of authentic source claims, or an engine sandbox. Direct model
-construction is not evidence that the resolver ran. Source eligibility, freshness,
-semantic content validation, and actual engine integration remain separate work.
+construction is not evidence that the resolver ran. Freshness, semantic content
+validation, and actual engine integration remain separate work.
+
+## Implemented Source Eligibility Gate
+
+`build_decision_inputs` now requires `source_policy: SourceAllowlist`. It
+revalidates that policy and requires `APPROVED` with approval time no later than
+the decision cutoff, including when the input is empty. Before any artifact read,
+every visible raw revision must reference a listed, enabled, legally approved
+source with resolved rights, and its rights classification must match exactly.
+Applicable revision-order claims also require eligible source IDs. Superseded
+and scope-excluded records receive the same checks. Future observations and
+future ordering claims are not evaluated for an earlier cutoff.
+
+Failure raises `SourceEligibilityError` (or model validation errors for malformed
+policies) with no partial bundle and no stale fallback. The bundle stores a
+`PolicyRef` with ID, version, and digest of the complete validated policy.
+`bundle.validate_source_policy(policy)` detects policy drift and rechecks the
+sources represented by the receipt. Its exclusions retain identifiers, not raw
+rights metadata; full-history validation still requires the original builder.
+
+This is validation of a supplied policy, not identity authentication or a trusted
+policy registry. Callers must select the correct operator-approved policy.
+Approval signatures, revocation, collection-time permission, retention, freshness,
+and rate enforcement are not implemented. Universe evidence has no source ID and
+is not authorized by this gate. Low-level resolver/selection APIs remain policy-free.
+No source files were approved and no connector was enabled; tests use synthetic
+policy objects. The repository source allowlist remains `DRAFT` and is rejected.
 
 ## Acceptance Evidence
 
@@ -193,3 +219,6 @@ semantic content validation, and actual engine integration remain separate work.
 - Universe tests in `tests/unit/data/test_artifacts.py` cover observed/effective
    boundaries, duplicate/overlapping intervals, JSON round trips, UTC-equivalent
    cutoffs, byte corruption, reference mismatch, and horizon extrapolation.
+- Source eligibility tests in the same file cover pre-I/O denial, inactive and
+   unlisted sources, rights mismatch, superseded revisions, future observations,
+   exact policy digest binding, and rejection of the unchanged repository draft.

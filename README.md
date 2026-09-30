@@ -201,7 +201,9 @@ selection but does not authorize orders. The existing data schema generator incl
 ## Per-Decision Inputs
 
 Use `ats.data.build_decision_inputs(resolver, snapshot, at=cutoff,
-revision_orders=orders)` to produce a frozen `DecisionInputBundle`. It combines
+source_policy=approved_policy, revision_orders=orders)` to produce a frozen
+`DecisionInputBundle`. The source policy is required; there is no implicit
+allow-all default. It combines
 verified record selection with effective, known universe membership. Instrument
 records outside that universe are excluded with a source/item/revision reason.
 Records with no instrument ID default to exclusion because they might represent
@@ -212,10 +214,31 @@ The builder verifies all visible raw history before scope filtering, not only
 admitted records. Missing/corrupt artifacts or ambiguous revisions fail without a
 partial bundle. Future raw observations and ordering evidence are not read.
 `bundle.content_digest()` binds snapshot identity, UTC cutoff, universe, effective
-members, applicable revision orders, inclusion policy, records, and exclusions.
+members, applicable revision orders, source-policy reference, inclusion policy,
+records, and exclusions.
 It does not remove the underlying snapshot's order-sensitive identity.
 
-This is an in-process provenance receipt, not a persisted schema, approved-source
-check, or trade authorization. Source eligibility/freshness and engine integration
-remain unimplemented. Direct model creation is not proof of verified bytes;
+This is an in-process provenance receipt, not a persisted schema or trade
+authorization. Freshness and engine integration remain unimplemented.
+Direct model creation is not proof of verified bytes;
 consumers that later read artifact files must use the resolver again.
+
+## Source Eligibility
+
+Bundle construction rejects policies that are not approved by the cutoff. Before
+artifact I/O, every visible raw revision must come from a listed, enabled,
+legally approved source, with matching resolved rights. This includes superseded
+revisions and records later excluded by universe/unscoped filtering. Applicable
+revision-order evidence must also have an eligible source. Future observations
+do not affect earlier source eligibility checks. Failures produce no bundle.
+
+`bundle.source_policy` pins the complete policy by ID, version, and digest.
+Use `bundle.validate_source_policy(policy)` to resolve the reference and recheck
+receipt eligibility. Rebuild from the original snapshot to recheck discarded raw
+revisions. The caller must supply the trusted operator policy; hashes and approval
+metadata do not authenticate the approver or prove current policy activation.
+
+Collection-time rights, revocation, retention, rate limits, freshness, and universe
+evidence authorization remain separate controls. Low-level resolver/selection
+methods do not apply this gate. Repository policies remain `DRAFT`; only synthetic
+test policies are approved in memory, and external collection remains disabled.

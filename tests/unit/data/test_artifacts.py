@@ -2,6 +2,7 @@ import hashlib
 import os
 import stat
 from datetime import UTC, datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,14 +13,50 @@ from ats.data.artifacts import ArtifactResolutionError, LocalArtifactResolver
 from ats.data.asof import AsOfSelectionError, RevisionOrder
 from ats.data.bundle import (
     DecisionInputBundle,
+    SourceEligibilityError,
     UnscopedRecordPolicy,
-    build_decision_inputs,
+)
+from ats.data.bundle import (
+    build_decision_inputs as build_inputs_with_policy,
 )
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
+from ats.domain.governance import evidence_digest
+from ats.domain.policy import SourceAllowlist, SourceReviewState, load_policy
 from ats.domain.strategy import ArtifactRef
 from ats.domain.universe import UniverseMember, UniverseMembershipArtifact
 
 FREEZE = datetime(2026, 9, 30, 7, tzinfo=UTC)
+
+
+def _source_policy() -> SourceAllowlist:
+    """Synthetic approval only; never activate a repository policy."""
+    return SourceAllowlist.model_validate(
+        {
+            "metadata": {
+                "policy_id": "test-source-policy",
+                "version": "1.0.0",
+                "status": "APPROVED",
+                "approved_by": "test-reviewer",
+                "approved_at": FREEZE - timedelta(days=10),
+            },
+            "sources": (
+                {
+                    "source_id": "test-source",
+                    "category": "DISCLOSURE",
+                    "enabled": True,
+                    "legal_review": "APPROVED",
+                    "rights": {"classification": "APPROVED_PUBLIC"},
+                    "rate_limit_per_minute": 10,
+                    "notes": "Synthetic local fixture source.",
+                },
+            ),
+        }
+    )
+
+
+build_decision_inputs = partial(
+    build_inputs_with_policy, source_policy=_source_policy()
+)
 
 
 def _digest(payload: bytes) -> str:
@@ -776,3 +813,339 @@ def test_bundle_rejects_invalid_structural_receipts(tmp_path: Path, case: str) -
         payload["cutoff"] = FREEZE + timedelta(seconds=1)
     with pytest.raises(ValidationError):
         DecisionInputBundle.model_validate(payload)
+
+
+@pytest.mark.parametrize("status", ["DRAFT", "RETIRED"])
+def test_source_gate_blocks_inactive_policy_before_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    base = _source_policy()
+    policy = SourceAllowlist.model_validate(
+        {
+            **base.model_dump(),
+            "metadata": {
+                **base.metadata.model_dump(),
+                "status": status,
+                "approved_at": None,
+                "approved_by": None,
+            },
+        }
+    )
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("source rejection must precede all artifact reads")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(SourceEligibilityError, match="approved by the cutoff"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path), snapshot, at=FREEZE, source_policy=policy
+        )
+
+
+@pytest.mark.parametrize(
+    "case", ["unlisted", "disabled", "pending", "rejected", "late_approval"]
+)
+def test_source_gate_blocks_ineligible_sources_before_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    base = _source_policy()
+    payload = base.model_dump()
+    if case == "late_approval":
+        payload["metadata"] = {
+            **base.metadata.model_dump(),
+            "approved_at": FREEZE + timedelta(seconds=1),
+        }
+    elif case == "unlisted":
+        payload["sources"] = ()
+    else:
+        source = {**base.sources[0].model_dump(), "enabled": False}
+        if case in ("pending", "rejected"):
+            source["legal_review"] = case.upper()
+        payload["sources"] = (source,)
+    policy = SourceAllowlist.model_validate(payload)
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("source rejection must precede all artifact reads")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(SourceEligibilityError):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path), snapshot, at=FREEZE, source_policy=policy
+        )
+
+
+@pytest.mark.parametrize("item", ["inside", "outside", "unscoped"])
+@pytest.mark.parametrize("rights", ["PENDING_REVIEW", "LICENSED"])
+def test_source_gate_checks_rights_even_for_excluded_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    item: str,
+    rights: str,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    records = tuple(
+        PointInTimeRecord.model_validate(
+            {**record.model_dump(), "rights_class": rights}
+        )
+        if record.source_item_id == item
+        else record
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("rights rejection must precede artifact reads")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(SourceEligibilityError, match="rights"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            source_policy=_source_policy(),
+        )
+
+
+def test_source_policy_is_bound_and_resolved_by_exact_digest(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    policy = _source_policy()
+    resolver = LocalArtifactResolver(tmp_path)
+    bundle = build_inputs_with_policy(
+        resolver, snapshot, at=FREEZE, source_policy=policy
+    )
+    assert bundle.source_policy.digest == evidence_digest(policy)
+    assert bundle.source_policy.policy_id == policy.metadata.policy_id
+    assert bundle.source_policy.version == policy.metadata.version
+    bundle.validate_source_policy(policy)
+    changed = SourceAllowlist.model_validate(
+        {
+            **policy.model_dump(),
+            "sources": (
+                {**policy.sources[0].model_dump(), "rate_limit_per_minute": 11},
+            ),
+        }
+    )
+    with pytest.raises(SourceEligibilityError, match="reference mismatch"):
+        bundle.validate_source_policy(changed)
+    rebuilt = build_inputs_with_policy(
+        resolver, snapshot, at=FREEZE, source_policy=changed
+    )
+    assert rebuilt.content_digest() != bundle.content_digest()
+
+
+def test_future_unlisted_source_does_not_block_past_bundle(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    cutoff = FREEZE - timedelta(minutes=1)
+    early = tuple(
+        PointInTimeRecord.model_validate({**record.model_dump(), "observed_at": cutoff})
+        for record in snapshot.records
+    )
+    later = PointInTimeRecord.model_validate(
+        {
+            **snapshot.records[0].model_dump(),
+            "source_id": "unlisted-future",
+            "raw_payload_digest": _digest(b"missing future data"),
+        }
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": (*early, later)}
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    assert build_inputs_with_policy(
+        resolver, snapshot, at=cutoff, source_policy=_source_policy()
+    ).records == (early[0],)
+    with pytest.raises(SourceEligibilityError, match="not eligible"):
+        build_inputs_with_policy(
+            resolver, snapshot, at=FREEZE, source_policy=_source_policy()
+        )
+
+
+def test_source_gate_revalidates_unchecked_policy_copies(tmp_path: Path) -> None:
+    policy = _source_policy()
+    invalid = policy.model_copy(
+        update={
+            "sources": (
+                policy.sources[0].model_copy(
+                    update={"legal_review": SourceReviewState.PENDING}
+                ),
+            )
+        }
+    )
+    with pytest.raises(ValidationError, match="approved legal review"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path),
+            _bundle_snapshot(tmp_path),
+            at=FREEZE,
+            source_policy=invalid,
+        )
+
+
+def test_repository_source_policy_stays_draft_and_cannot_build_bundle(
+    tmp_path: Path,
+) -> None:
+    path = Path(__file__).resolve().parents[3] / "config" / "source-allowlist.yaml"
+    original = path.read_bytes()
+    policy = load_policy(path, SourceAllowlist)
+    with pytest.raises(SourceEligibilityError, match="approved by the cutoff"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path),
+            _bundle_snapshot(tmp_path),
+            at=FREEZE,
+            source_policy=policy,
+        )
+    assert path.read_bytes() == original
+
+
+def test_source_policy_approval_boundary_is_inclusive(tmp_path: Path) -> None:
+    base = _source_policy()
+    policy = SourceAllowlist.model_validate(
+        {
+            **base.model_dump(),
+            "metadata": {**base.metadata.model_dump(), "approved_at": FREEZE},
+        }
+    )
+    bundle = build_inputs_with_policy(
+        LocalArtifactResolver(tmp_path),
+        _bundle_snapshot(tmp_path),
+        at=FREEZE,
+        source_policy=policy,
+    )
+    bundle.validate_source_policy(policy)
+
+
+def test_superseded_revision_rights_cannot_be_hidden_by_latest_revision(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    original = snapshot.records[0]
+    older = PointInTimeRecord.model_validate(
+        {**original.model_dump(), "rights_class": "PENDING_REVIEW"}
+    )
+    newer = PointInTimeRecord.model_validate(
+        {**original.model_dump(), "revision": "rev-002"}
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": (older, newer)}
+    )
+    with pytest.raises(SourceEligibilityError, match="rights"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            source_policy=_source_policy(),
+        )
+
+
+def test_unlisted_revision_order_is_rejected_before_evidence_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    order = RevisionOrder.model_validate(
+        {**_order(_digest(b"absent")).model_dump(), "source_id": "unlisted-source"}
+    )
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("unlisted order must fail before evidence I/O")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(SourceEligibilityError, match="not eligible"):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            source_policy=_source_policy(),
+            revision_orders=(order,),
+        )
+
+
+def test_empty_input_still_requires_approved_policy(tmp_path: Path) -> None:
+    draft = SourceAllowlist.model_validate(
+        {"metadata": {"policy_id": "test-draft", "version": "1"}, "sources": ()}
+    )
+    with pytest.raises(SourceEligibilityError):
+        build_inputs_with_policy(
+            LocalArtifactResolver(tmp_path), _snapshot(), at=FREEZE, source_policy=draft
+        )
+
+
+@pytest.mark.parametrize("field", ["policy_id", "version", "digest"])
+def test_bundle_rejects_changed_source_policy_reference(
+    tmp_path: Path, field: str
+) -> None:
+    policy = _source_policy()
+    bundle = build_inputs_with_policy(
+        LocalArtifactResolver(tmp_path),
+        _bundle_snapshot(tmp_path),
+        at=FREEZE,
+        source_policy=policy,
+    )
+    value = _digest(b"tampered policy reference") if field == "digest" else "changed"
+    altered = DecisionInputBundle.model_validate(
+        {
+            **bundle.model_dump(),
+            "source_policy": {**bundle.source_policy.model_dump(), field: value},
+        }
+    )
+    with pytest.raises(SourceEligibilityError, match="reference mismatch"):
+        altered.validate_source_policy(policy)
+
+
+def test_bundle_policy_resolution_rechecks_record_eligibility(tmp_path: Path) -> None:
+    policy = _source_policy()
+    bundle = build_inputs_with_policy(
+        LocalArtifactResolver(tmp_path),
+        _bundle_snapshot(tmp_path),
+        at=FREEZE,
+        source_policy=policy,
+    )
+    altered = DecisionInputBundle.model_validate(
+        {
+            **bundle.model_dump(),
+            "records": (
+                {**bundle.records[0].model_dump(), "rights_class": "PENDING_REVIEW"},
+            ),
+        }
+    )
+    with pytest.raises(SourceEligibilityError, match="rights"):
+        altered.validate_source_policy(policy)
+    with pytest.raises(ValidationError, match="source_policy"):
+        DecisionInputBundle.model_validate(bundle.model_dump(exclude={"source_policy"}))
+
+
+def test_matching_licensed_source_and_records_are_allowed(tmp_path: Path) -> None:
+    base = _source_policy()
+    policy = SourceAllowlist.model_validate(
+        {
+            **base.model_dump(),
+            "sources": (
+                {
+                    **base.sources[0].model_dump(),
+                    "rights": {"classification": "LICENSED"},
+                },
+            ),
+        }
+    )
+    snapshot = _bundle_snapshot(tmp_path)
+    records = tuple(
+        PointInTimeRecord.model_validate(
+            {**record.model_dump(), "rights_class": "LICENSED"}
+        )
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    bundle = build_inputs_with_policy(
+        LocalArtifactResolver(tmp_path), snapshot, at=FREEZE, source_policy=policy
+    )
+    assert bundle.records == (records[0],)
+    bundle.validate_source_policy(policy)
