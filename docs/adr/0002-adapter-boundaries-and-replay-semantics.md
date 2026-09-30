@@ -94,10 +94,10 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Specify explicit source availability and freshness requirements for local bundles,
-with synthetic missing/stale-input tests and no invented operator thresholds.
-Review collection-time licensing, policy activation, and source completeness
-before real connectors or engine replay. All approval gates remain.
+Exercise a local multi-cutoff replay workflow with pinned source policies and
+explicit requirements, using synthetic fixtures for revisions, universe changes,
+and data outages. Review collection-time licensing, policy activation, and source
+completeness before real connectors or engine replay. All approval gates remain.
 
 ## Implemented Local Artifact Verification
 
@@ -172,8 +172,9 @@ identity still includes its original ordering and creation metadata. Future
 orders are not part of the applied provenance, whereas the snapshot digest still
 binds its entire archive. The bundle is an in-process receipt, not a new persisted
 schema, proof of authentic source claims, or an engine sandbox. Direct model
-construction is not evidence that the resolver ran. Freshness, semantic content
-validation, and actual engine integration remain separate work.
+construction is not evidence that the resolver ran. Semantic content validation
+and actual engine integration remain separate work. Explicit local freshness
+requirements are described below.
 
 ## Implemented Source Eligibility Gate
 
@@ -200,6 +201,30 @@ and rate enforcement are not implemented. Universe evidence has no source ID and
 is not authorized by this gate. Low-level resolver/selection APIs remain policy-free.
 No source files were approved and no connector was enabled; tests use synthetic
 policy objects. The repository source allowlist remains `DRAFT` and is rejected.
+
+## Implemented Availability and Freshness
+
+`SourceDataRequirement` declares a unique requirement ID, source ID, optional
+source item and instrument filters, positive minimum record count, explicit
+`OBSERVED`, `PUBLISHED`, or `EFFECTIVE` age basis, and nonnegative maximum age
+in seconds. There are no inferred production thresholds. Null filters mean no
+filter; they are not a request for unscoped-only records.
+
+The builder validates requirement sources before artifact I/O. After revision
+and universe selection, it requires enough admitted matching records and checks
+every matching record, not just the newest one. Missing records, missing chosen
+timestamps, future timestamps, or excessive age fail without a partial bundle or
+fallback. Age is calculated in UTC with an inclusive limit; observation age and
+economic age can be independently required using separate requirements.
+
+Rules are stored in the bundle and its digest and rerun on receipt validation.
+`data_requirements=()` means no availability/freshness assertion, not a passing
+production gate. Callers must pin trusted requirements; they are not yet signed
+operator policies. Excluded/superseded records cannot satisfy availability, but
+their existing source-eligibility and byte-integrity checks remain unchanged.
+These checks do not prove dataset completeness, source timestamp truth, source
+heartbeat health, or per-trading-session freshness. Effective time is not an
+automatic substitute for an economic observation timestamp.
 
 ## Acceptance Evidence
 

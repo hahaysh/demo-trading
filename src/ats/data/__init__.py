@@ -8,14 +8,22 @@ from ats.data.bundle import (
     UnscopedRecordPolicy,
     build_decision_inputs,
 )
+from ats.data.requirements import (
+    DataRequirementError,
+    FreshnessBasis,
+    SourceDataRequirement,
+)
 
 __all__ = [
     "ArtifactResolutionError",
     "AsOfSelectionError",
     "DecisionInputBundle",
+    "DataRequirementError",
+    "FreshnessBasis",
     "LocalArtifactResolver",
     "RevisionOrder",
     "SourceEligibilityError",
+    "SourceDataRequirement",
     "UnscopedRecordPolicy",
     "build_decision_inputs",
     "select_records_as_of",

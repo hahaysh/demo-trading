@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, model_validator
 
 from ats.data.artifacts import LocalArtifactResolver
 from ats.data.asof import RevisionOrder
+from ats.data.requirements import SourceDataRequirement, validate_data_requirements
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import (
@@ -77,6 +78,7 @@ class DecisionInputBundle(FrozenModel):
     snapshot: DatasetSnapshotRef
     cutoff: AwareDatetime
     source_policy: PolicyRef
+    data_requirements: tuple[SourceDataRequirement, ...] = ()
     universe: UniverseMembershipManifest
     members: tuple[UniverseMember, ...]
     revision_orders: tuple[RevisionOrder, ...]
@@ -128,6 +130,7 @@ class DecisionInputBundle(FrozenModel):
                     raise ValueError("bundle excludes unscoped records")
             elif record.instrument_id not in member_ids:
                 raise ValueError("bundle record is outside universe")
+        validate_data_requirements(self.data_requirements, self.records, at=self.cutoff)
         return self
 
     def content_digest(self) -> str:
@@ -144,6 +147,8 @@ class DecisionInputBundle(FrozenModel):
         ):
             raise SourceEligibilityError("bundle source policy reference mismatch")
         sources = _approved_sources(policy, bundle.cutoff.astimezone(UTC))
+        for requirement in bundle.data_requirements:
+            _require_source(sources, requirement.source_id)
         for record in bundle.records:
             _require_record(sources, record)
         for excluded in bundle.excluded:
@@ -158,6 +163,7 @@ def build_decision_inputs(
     *,
     at: datetime,
     source_policy: SourceAllowlist,
+    data_requirements: tuple[SourceDataRequirement, ...] = (),
     revision_orders: tuple[RevisionOrder, ...] = (),
     unscoped_policy: UnscopedRecordPolicy = UnscopedRecordPolicy.EXCLUDE,
 ) -> DecisionInputBundle:
@@ -172,6 +178,14 @@ def build_decision_inputs(
     )
     source_policy = SourceAllowlist.model_validate(source_policy.model_dump())
     sources = _approved_sources(source_policy, cutoff)
+    requirements = tuple(
+        SourceDataRequirement.model_validate(item.model_dump())
+        for item in data_requirements
+    )
+    if len({item.requirement_id for item in requirements}) != len(requirements):
+        raise ValueError("data requirement IDs must be unique")
+    for requirement in requirements:
+        _require_source(sources, requirement.source_id)
     for record in snapshot.records:
         if record.observed_at.astimezone(UTC) <= cutoff:
             _require_record(sources, record)
@@ -214,6 +228,7 @@ def build_decision_inputs(
             digest=snapshot.content_digest(),
         ),
         cutoff=cutoff,
+        data_requirements=requirements,
         source_policy=PolicyRef(
             policy_id=source_policy.metadata.policy_id,
             version=source_policy.metadata.version,

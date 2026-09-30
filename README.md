@@ -214,12 +214,13 @@ The builder verifies all visible raw history before scope filtering, not only
 admitted records. Missing/corrupt artifacts or ambiguous revisions fail without a
 partial bundle. Future raw observations and ordering evidence are not read.
 `bundle.content_digest()` binds snapshot identity, UTC cutoff, universe, effective
-members, applicable revision orders, source-policy reference, inclusion policy,
+members, applicable revision orders, source-policy reference, data requirements, inclusion policy,
 records, and exclusions.
 It does not remove the underlying snapshot's order-sensitive identity.
 
 This is an in-process provenance receipt, not a persisted schema or trade
-authorization. Freshness and engine integration remain unimplemented.
+authorization. Engine integration remains unimplemented; explicit local freshness
+requirements can be supplied as described below.
 Direct model creation is not proof of verified bytes;
 consumers that later read artifact files must use the resolver again.
 
@@ -238,7 +239,28 @@ receipt eligibility. Rebuild from the original snapshot to recheck discarded raw
 revisions. The caller must supply the trusted operator policy; hashes and approval
 metadata do not authenticate the approver or prove current policy activation.
 
-Collection-time rights, revocation, retention, rate limits, freshness, and universe
+Collection-time rights, revocation, retention, rate limits, and universe
 evidence authorization remain separate controls. Low-level resolver/selection
 methods do not apply this gate. Repository policies remain `DRAFT`; only synthetic
 test policies are approved in memory, and external collection remains disabled.
+
+## Required Data
+
+Pass `data_requirements=(SourceDataRequirement(...), ...)` to the builder to
+require source data and freshness. Each rule specifies `requirement_id`,
+`source_id`, `min_records`, `freshness_basis`, and `max_age_seconds`. Optional
+`source_item_id` and `instrument_id` restrict matching; omitted filters match all
+admitted records for that source. Requirements are included in the bundle digest.
+
+Choose `OBSERVED`, `PUBLISHED`, or `EFFECTIVE` explicitly. The builder does not
+invent a fallback timestamp. Missing/future timestamps, stale data, or too few
+admitted records cause failure. All matching records must pass, so one recent
+record cannot hide an older matching record. Age is elapsed UTC seconds, not
+trading sessions; the maximum is inclusive. Source-specific economic timestamp
+meaning must be established before using `EFFECTIVE` as a freshness basis.
+
+An empty requirement tuple means no availability/freshness checks. This preserves
+selection-only use; it is not a completeness guarantee. Requirements currently
+come from the caller, not an authenticated operator policy store, and production
+consumers must prevent strategy-controlled omission or relaxation. No operational
+thresholds or repository policy approvals were introduced.

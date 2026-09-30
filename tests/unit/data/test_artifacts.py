@@ -19,6 +19,11 @@ from ats.data.bundle import (
 from ats.data.bundle import (
     build_decision_inputs as build_inputs_with_policy,
 )
+from ats.data.requirements import (
+    DataRequirementError,
+    SourceDataRequirement,
+    validate_data_requirements,
+)
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import SourceAllowlist, SourceReviewState, load_policy
@@ -61,6 +66,295 @@ build_decision_inputs = partial(
 
 def _digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _requirement(**changes: object) -> SourceDataRequirement:
+    return SourceDataRequirement.model_validate(
+        {
+            "requirement_id": "test-freshness",
+            "source_id": "test-source",
+            "min_records": 1,
+            "freshness_basis": "OBSERVED",
+            "max_age_seconds": 60,
+            **changes,
+        }
+    )
+
+
+def test_requirement_boundary_and_provenance(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    records = tuple(
+        PointInTimeRecord.model_validate(
+            {**item.model_dump(), "observed_at": FREEZE - timedelta(seconds=60)}
+        )
+        for item in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    bundle = build_decision_inputs(
+        resolver, snapshot, at=FREEZE, data_requirements=(_requirement(),)
+    )
+    assert bundle.data_requirements == (_requirement(),)
+    assert DecisionInputBundle.model_validate_json(bundle.model_dump_json()) == bundle
+    relaxed = build_decision_inputs(
+        resolver,
+        snapshot,
+        at=FREEZE,
+        data_requirements=(_requirement(max_age_seconds=61),),
+    )
+    assert bundle.content_digest() != relaxed.content_digest()
+    with pytest.raises(ValidationError, match="stale required data"):
+        build_decision_inputs(
+            resolver,
+            snapshot,
+            at=FREEZE,
+            data_requirements=(_requirement(max_age_seconds=59),),
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"min_records": 2},
+        {"source_item_id": "outside"},
+        {"instrument_id": "krx-000660"},
+        {"source_item_id": "absent"},
+        {"source_item_id": "unscoped"},
+    ],
+)
+def test_requirements_count_only_admitted_inputs(
+    tmp_path: Path, changes: dict[str, object]
+) -> None:
+    with pytest.raises(ValidationError, match="missing required data"):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            _bundle_snapshot(tmp_path),
+            at=FREEZE,
+            data_requirements=(_requirement(**changes),),
+        )
+
+
+@pytest.mark.parametrize("basis", ["PUBLISHED", "EFFECTIVE"])
+@pytest.mark.parametrize(
+    "timestamp", [None, FREEZE + timedelta(seconds=1), FREEZE - timedelta(days=10)]
+)
+def test_recent_observation_cannot_hide_missing_future_or_stale_data_time(
+    tmp_path: Path,
+    basis: str,
+    timestamp: datetime | None,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    field = "published_at" if basis == "PUBLISHED" else "effective_at"
+    if basis == "PUBLISHED" and timestamp is not None and timestamp > FREEZE:
+        with pytest.raises(ValidationError):
+            PointInTimeRecord.model_validate(
+                {**snapshot.records[0].model_dump(), field: timestamp}
+            )
+        return
+    records = tuple(
+        PointInTimeRecord.model_validate({**record.model_dump(), field: timestamp})
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    with pytest.raises(
+        ValidationError, match="freshness timestamp|stale required data"
+    ):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            data_requirements=(_requirement(freshness_basis=basis),),
+        )
+
+
+@pytest.mark.parametrize("basis", ["OBSERVED", "PUBLISHED", "EFFECTIVE"])
+def test_explicit_timestamp_basis_accepts_fresh_data(
+    tmp_path: Path, basis: str
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    records = tuple(
+        PointInTimeRecord.model_validate(
+            {**record.model_dump(), "published_at": FREEZE, "effective_at": FREEZE}
+        )
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    result = build_decision_inputs(
+        LocalArtifactResolver(tmp_path),
+        snapshot,
+        at=FREEZE,
+        data_requirements=(_requirement(freshness_basis=basis, max_age_seconds=0),),
+    )
+    assert len(result.records) == 1
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"max_age_seconds": -1},
+        {"max_age_seconds": True},
+        {"max_age_seconds": 1.5},
+        {"min_records": 0},
+        {"min_records": True},
+        {"freshness_basis": "AUTO"},
+    ],
+)
+def test_invalid_data_requirements_are_rejected(changes: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        _requirement(**changes)
+
+
+def test_requirement_sources_and_duplicates_are_checked_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+
+    def no_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("invalid requirements must not reach I/O")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", no_read)
+    with pytest.raises(SourceEligibilityError):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            data_requirements=(_requirement(source_id="unlisted"),),
+        )
+    with pytest.raises(ValueError, match="unique"):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            data_requirements=(_requirement(), _requirement()),
+        )
+
+
+def test_one_fresh_record_cannot_mask_another_stale_matching_record(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    stale = PointInTimeRecord.model_validate(
+        {
+            **snapshot.records[0].model_dump(),
+            "source_item_id": "stale-item",
+            "observed_at": FREEZE - timedelta(hours=1),
+        }
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": (*snapshot.records, stale)}
+    )
+    with pytest.raises(ValidationError, match="stale required data"):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            data_requirements=(_requirement(),),
+        )
+    assert (
+        len(
+            build_decision_inputs(
+                LocalArtifactResolver(tmp_path),
+                snapshot,
+                at=FREEZE,
+                data_requirements=(_requirement(source_item_id="inside"),),
+            ).records
+        )
+        == 2
+    )
+
+
+def test_bundle_receipt_rechecks_requirements_on_reconstruction(tmp_path: Path) -> None:
+    bundle = build_decision_inputs(
+        LocalArtifactResolver(tmp_path),
+        _bundle_snapshot(tmp_path),
+        at=FREEZE,
+        data_requirements=(_requirement(),),
+    )
+    with pytest.raises(ValidationError, match="missing required data"):
+        DecisionInputBundle.model_validate({**bundle.model_dump(), "records": ()})
+    with pytest.raises(ValidationError):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            _bundle_snapshot(tmp_path),
+            at=FREEZE,
+            data_requirements=(
+                _requirement().model_copy(update={"max_age_seconds": -1}),
+            ),
+        )
+
+
+def test_age_boundary_is_exact_and_timezone_independent() -> None:
+    record = _record(_digest(b"data"), observed_at=FREEZE - timedelta(seconds=60))
+    local_cutoff = FREEZE.astimezone(timezone(timedelta(hours=9)))
+    validate_data_requirements((_requirement(),), (record,), at=local_cutoff)
+    with pytest.raises(DataRequirementError, match="stale"):
+        validate_data_requirements(
+            (_requirement(),), (record,), at=FREEZE + timedelta(microseconds=1)
+        )
+    with pytest.raises(DataRequirementError, match="timezone-aware"):
+        validate_data_requirements(
+            (_requirement(),), (record,), at=datetime(2026, 9, 30)
+        )
+
+
+def test_future_records_cannot_fulfil_required_availability(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    with pytest.raises(ValidationError, match="missing required data"):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE - timedelta(seconds=1),
+            data_requirements=(_requirement(),),
+        )
+
+
+def test_observation_and_effective_age_can_be_required_independently(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    records = tuple(
+        PointInTimeRecord.model_validate(
+            {**record.model_dump(), "effective_at": FREEZE - timedelta(days=1)}
+        )
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    requirements = (
+        _requirement(),
+        _requirement(requirement_id="economic-age", freshness_basis="EFFECTIVE"),
+    )
+    with pytest.raises(ValidationError, match="economic-age"):
+        build_decision_inputs(
+            LocalArtifactResolver(tmp_path),
+            snapshot,
+            at=FREEZE,
+            data_requirements=requirements,
+        )
+
+
+def test_empty_and_unscoped_data_requirements_are_explicit(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path, ())
+    resolver = LocalArtifactResolver(tmp_path)
+    with pytest.raises(ValidationError, match="missing required data"):
+        build_decision_inputs(
+            resolver, snapshot, at=FREEZE, data_requirements=(_requirement(),)
+        )
+    result = build_decision_inputs(
+        resolver,
+        snapshot,
+        at=FREEZE,
+        unscoped_policy=UnscopedRecordPolicy.INCLUDE,
+        data_requirements=(_requirement(source_item_id="unscoped"),),
+    )
+    assert result.records[0].source_item_id == "unscoped"
 
 
 def _store(root: Path, payload: bytes) -> str:

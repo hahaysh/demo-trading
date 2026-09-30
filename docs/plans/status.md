@@ -78,7 +78,11 @@ per-decision input bundle.
 - Bundle provenance now includes the exact source policy ID, version, and digest;
     `validate_source_policy` resolves that reference and rechecks receipt eligibility.
     Repository policies remain unchanged and `DRAFT`; tests use synthetic approvals.
-- Latest local checks on 2026-09-30: 378 tests passed; 2 actual symlink tests
+- Added explicit `SourceDataRequirement` checks to bundle construction and
+    receipt validation: minimum admitted counts, scoped source/item/instrument,
+    and maximum age against a declared observation/publication/effective timestamp.
+    Requirements are retained in the bundle digest; no production limits were set.
+- Latest local checks on 2026-09-30: 406 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -109,13 +113,25 @@ per-decision input bundle.
 
 ## Next Executable Step
 
-Define explicit per-source data availability and freshness requirements for local
-bundle construction. Test missing/stale required inputs and distinguish observation
-time from economic data age. Do not invent freshness limits or approve repository
-policies; keep the first implementation and evidence on synthetic local fixtures.
+Build a local multi-cutoff replay workflow that materializes bundles with pinned
+source policies, revision evidence, and explicit data requirements. Use synthetic
+fixtures to demonstrate late revisions, changing universe membership, and stale
+or missing inputs over time; keep real engines and external collection disabled.
 
 ## Known Boundaries
 
+- `data_requirements` is explicit, in-process metadata, not a signed operator
+    policy. The empty tuple preserves selection-only behavior and makes no
+    freshness/completeness claim. Production consumers must require the correct
+    trusted requirements rather than letting strategies omit or relax them.
+- Requirements inspect final admitted records, not excluded or superseded ones.
+    Every matching admitted record must satisfy its declared age limit; no record
+    is silently dropped to make the check pass. Required source eligibility is
+    checked before I/O, even when no matching record exists.
+- Age uses elapsed UTC seconds with inclusive maximum age, without trading
+    calendars. Missing or future chosen timestamps fail; there is no fallback
+    to observation time. `effective_at` is only an economic-age proxy where the
+    source contract defines it accordingly. Unmatched sources are not age-checked.
 - `build_decision_inputs` combines verified record and universe selection, with
     exclusions recorded by source/item/revision and reason. Unscoped inclusion
     is an explicit caller choice, not proof that a record is market-wide.
@@ -125,7 +141,7 @@ policies; keep the first implementation and evidence on synthetic local fixtures
     Consumers must reverify referenced payload bytes on subsequent reads.
 - Bundle identity includes snapshot digest, normalized UTC cutoff, universe
     reference, effective members, applicable revision orders, unscoped policy,
-    source-policy reference, admitted records, and exclusions. It inherits the snapshot's order-sensitive
+    source-policy reference, data requirements, admitted records, and exclusions. It inherits the snapshot's order-sensitive
     identity; it is not an order-independent hash of the complete input archive.
 - Bundle construction requires a revalidated source policy and enforces declared
     eligibility before I/O, even for records later excluded by universe scope.
@@ -135,7 +151,7 @@ policies; keep the first implementation and evidence on synthetic local fixtures
     are authenticated here. The policy approval date is checked against the bundle
     cutoff, not every historical record's collection timestamp.
 - Bundle construction is not yet wired to engine ports and does not enforce
-    freshness, retention, rate limiting, normalized-content validity, membership
+    retention, rate limiting, normalized-content validity, membership
     evidence authenticity, or trade authorization. Universe evidence references
     lack source IDs and are not covered by this source gate. Empty bundles do not
     authorize signals. Low-level resolver/selector methods remain policy-free.
@@ -233,6 +249,7 @@ policies; keep the first implementation and evidence on synthetic local fixtures
 - Local as-of selector: `src/ats/data/asof.py`
 - Local artifact resolver: `src/ats/data/artifacts.py`
 - Per-decision input bundle: `src/ats/data/bundle.py`
+- Availability/freshness rules: `src/ats/data/requirements.py`
 - Historical universe contract: `src/ats/domain/universe.py`
 - Universe artifact schema: `schemas/data/universe-membership.v1.schema.json`
 - Artifact integrity and selection tests: `tests/unit/data/test_artifacts.py`
@@ -259,6 +276,6 @@ policies; keep the first implementation and evidence on synthetic local fixtures
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
     all four schema generator checks (nine schemas), and `uv run pytest -q`
-    (378 passed, 2 skipped for Windows symlink creation privileges)
+    (406 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)
