@@ -1,0 +1,295 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvaluationRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "format": "uuid",
+          "title": "Evaluation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "digest"
+      ],
+      "title": "EvaluationRef",
+      "type": "object"
+    },
+    "GateAttestation": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "$ref": "#/$defs/PromotionGate"
+        },
+        "report": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "status": {
+          "$ref": "#/$defs/GateStatus"
+        }
+      },
+      "required": [
+        "gate",
+        "status",
+        "report"
+      ],
+      "title": "GateAttestation",
+      "type": "object"
+    },
+    "GateStatus": {
+      "enum": [
+        "PASSED",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "GateStatus",
+      "type": "string"
+    },
+    "HumanApproval": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "const": "HUMAN",
+          "default": "HUMAN",
+          "title": "Actor",
+          "type": "string"
+        },
+        "approval_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "approved_at": {
+          "format": "date-time",
+          "title": "Approved At",
+          "type": "string"
+        },
+        "approver_id": {
+          "maxLength": 2000,
+          "minLength": 3,
+          "title": "Approver Id",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "review_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Review Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "approval_id",
+        "approver_id",
+        "approved_at",
+        "review_digest",
+        "evidence"
+      ],
+      "title": "HumanApproval",
+      "type": "object"
+    },
+    "PolicyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "digest"
+      ],
+      "title": "PolicyRef",
+      "type": "object"
+    },
+    "PromotionGate": {
+      "enum": [
+        "NET_OOS_SHARPE",
+        "MAX_DRAWDOWN",
+        "WALK_FORWARD",
+        "DEFLATED_SHARPE",
+        "DUAL_ENGINE",
+        "DATA_INTEGRITY",
+        "PAPER_SESSIONS",
+        "HARD_RISK",
+        "REALIZED_SLIPPAGE",
+        "REPRODUCIBILITY"
+      ],
+      "title": "PromotionGate",
+      "type": "string"
+    },
+    "PromotionOutcome": {
+      "enum": [
+        "APPROVED",
+        "REJECTED",
+        "DEFERRED"
+      ],
+      "title": "PromotionOutcome",
+      "type": "string"
+    },
+    "PromotionReview": {
+      "additionalProperties": false,
+      "description": "The exact review subject to which an approval is bound.",
+      "properties": {
+        "decision_id": {
+          "format": "uuid",
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "evaluations": {
+          "items": {
+            "$ref": "#/$defs/EvaluationRef"
+          },
+          "minItems": 1,
+          "title": "Evaluations",
+          "type": "array"
+        },
+        "gates": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GateAttestation"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicyRef"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "minLength": 3,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "strategy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Strategy Digest",
+          "type": "string"
+        },
+        "strategy_version_id": {
+          "format": "uuid",
+          "title": "Strategy Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id",
+        "strategy_version_id",
+        "strategy_digest",
+        "policy",
+        "evaluations",
+        "reviewed_at",
+        "rationale"
+      ],
+      "title": "PromotionReview",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:promotion-decision:v1",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "approval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HumanApproval"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "decided_at": {
+      "format": "date-time",
+      "title": "Decided At",
+      "type": "string"
+    },
+    "kind": {
+      "const": "PromotionDecision",
+      "default": "PromotionDecision",
+      "title": "Kind",
+      "type": "string"
+    },
+    "outcome": {
+      "$ref": "#/$defs/PromotionOutcome"
+    },
+    "review": {
+      "$ref": "#/$defs/PromotionReview"
+    }
+  },
+  "required": [
+    "review",
+    "outcome",
+    "decided_at"
+  ],
+  "title": "PromotionDecision",
+  "type": "object"
+}

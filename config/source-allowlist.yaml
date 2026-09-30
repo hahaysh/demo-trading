@@ -1,0 +1,59 @@
+api_version: ats/v1
+kind: SourceAllowlist
+metadata:
+  policy_id: source-allowlist
+  version: 0.1.0
+  status: DRAFT
+  owner: operator
+default_action: DENY
+private_or_mnpi_sources_allowed: false
+agent_editable: false
+sources:
+  - source_id: kis-market
+    category: MARKET
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: Official market data; enable only after terms and retention review.
+  - source_id: dart-disclosures
+    category: DISCLOSURE
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: DART disclosures; enable only after API usage review.
+  - source_id: kind-krx
+    category: EXCHANGE
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: KIND and KRX data; enable only after source-specific review.
+  - source_id: licensed-news
+    category: NEWS
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: Provider must be selected and licensed before collection.
+  - source_id: approved-public-telegram
+    category: PUBLIC_CHANNEL
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: Only individually approved public channels may be added.
+  - source_id: approved-public-community
+    category: PUBLIC_COMMUNITY
+    enabled: false
+    legal_review: PENDING
+    rights:
+      classification: PENDING_REVIEW
+      redistribution_allowed: false
+    notes: Only approved public pages with documented collection rights.

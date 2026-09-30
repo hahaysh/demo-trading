@@ -1,0 +1,90 @@
+# Demo Trading
+
+Governed research and paper-trading software for Korean equities and ETFs.
+
+The pilot is intentionally limited to backtesting and the Korea Investment Open
+API paper environment. Strategies are immutable, risk checks are independent,
+and promotion always requires human approval. See
+`docs/plans/ats-master-plan.md` for scope and delivery gates.
+
+## Local Setup
+
+Prerequisites: `uv` and Python 3.11. `uv` can install the pinned Python version.
+
+```powershell
+uv python install 3.11
+uv sync --all-groups
+uv run ruff check .
+uv run pyright
+uv run pytest
+```
+
+## Data Contracts
+
+`MarketEvent` represents a derived observation, not an order. It carries a
+versioned producer, confidence, availability timestamp, snapshot reference, and
+the exact source revisions used as evidence. Before consuming an event, call
+`event.validate_against_snapshot(snapshot)` to verify the reference digest and
+evidence against the actual frozen snapshot. Event construction alone does not
+resolve the snapshot. This does not replace runtime source-policy approval.
+
+An event must be available by the snapshot cutoff and cannot predate its evidence.
+Later retrospective extraction is not admitted into that historical signal path.
+Publication and effective timestamps remain distinct from observed availability.
+
+Regenerate both data schemas after changing these contracts:
+
+```powershell
+uv run python scripts/generate_data_snapshot_schema.py
+uv run python scripts/generate_data_snapshot_schema.py --check
+```
+
+The generator retains its original name and now covers `DataSnapshot` and
+`MarketEvent`. See `docs/plans/status.md` for implementation boundaries and the
+next contract slice.
+
+## Research Contracts
+
+`ExperimentRun` is an immutable terminal receipt (`SUCCEEDED` or `FAILED`), not
+a job scheduler. It records exact strategy and snapshot references, engine/code
+artifacts, container and dependency-lock digests, seed, timestamps, and outputs.
+Call `run.validate_inputs(strategy, snapshot)` before accepting it for evaluation.
+
+`EvaluationResult` records one engine's finite measurements and a versioned
+protocol reference. Call `result.validate_against_run(run)` to check the run ID
+and digest, successful completion, and evaluation period cutoff. The protocol
+must document metric definitions, transaction costs, and data splits. Negative
+performance and data-integrity violations remain evidence, not discarded runs.
+An omitted deflated-Sharpe confidence is unknown, not a passing result.
+
+These checks do not verify artifact bytes, reproduce metrics, certify multiple
+engines, authorize promotion, or replace independent risk checks. Execution,
+statistical evaluation, and authenticated human approval remain separate work.
+
+```powershell
+uv run python scripts/generate_research_schemas.py
+uv run python scripts/generate_research_schemas.py --check
+```
+
+## Promotion Receipts
+
+`PromotionDecision` records an approved, rejected, or deferred review; it does
+not change the champion or authorize orders. An approved receipt requires human
+approval evidence bound to the digest of the exact `PromotionReview` and a
+passing report reference for every declared promotion gate. Changing the review
+invalidates the approval binding. Rejected/deferred receipts may retain missing
+or failing gate evidence, but cannot carry an approval.
+
+Before consuming a receipt, resolve each run's inputs and call
+`decision.validate_evidence(policy, evaluations, runs)`. This checks exact
+references, timing, candidate consistency, and, for approved receipts, policy
+approval, Qlib/LEAN coverage, comparable snapshot/protocol/period, available
+metric thresholds, and zero reported data-integrity violations.
+
+Report statuses and `HUMAN` metadata are assertions, not verified identity or
+statistical proof. An independent service must verify report contents, signatures,
+reviewer authority, paper duration, risk history, fold results, slippage, and
+engine tolerances before activation. The current contract implements none of
+those runtime authorizations. Operator policies remain unchanged and `DRAFT`.
+
+The existing research schema generator also covers `PromotionDecision`.

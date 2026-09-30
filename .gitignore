@@ -1,0 +1,16 @@
+.coverage
+.env
+.env.*
+!.env.example
+.hypothesis/
+.mypy_cache/
+.pytest_cache/
+.pyright/
+.ruff_cache/
+.venv/
+__pycache__/
+*.egg-info/
+*.py[cod]
+build/
+dist/
+htmlcov/

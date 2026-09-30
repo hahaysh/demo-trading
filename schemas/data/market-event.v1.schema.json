@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CredibilityTier": {
+      "enum": [
+        "PRIMARY",
+        "LICENSED",
+        "PUBLIC",
+        "LOW_TRUST"
+      ],
+      "title": "CredibilityTier",
+      "type": "string"
+    },
+    "DatasetSnapshotRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "observed_through",
+        "digest"
+      ],
+      "title": "DatasetSnapshotRef",
+      "type": "object"
+    },
+    "MarketEventType": {
+      "enum": [
+        "DISCLOSURE",
+        "NEWS",
+        "RUMOR",
+        "CORPORATE_ACTION"
+      ],
+      "title": "MarketEventType",
+      "type": "string"
+    },
+    "PointInTimeRecord": {
+      "additionalProperties": false,
+      "description": "A source revision available to the system at a known observation time.",
+      "properties": {
+        "content_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "credibility_tier": {
+          "$ref": "#/$defs/CredibilityTier"
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective At"
+        },
+        "instrument_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instrument Id"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published At"
+        },
+        "raw_payload_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Raw Payload Digest",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "rights_class": {
+          "$ref": "#/$defs/RightsClass"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_item_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Source Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_item_id",
+        "revision",
+        "observed_at",
+        "rights_class",
+        "credibility_tier",
+        "content_hash",
+        "raw_payload_digest"
+      ],
+      "title": "PointInTimeRecord",
+      "type": "object"
+    },
+    "RightsClass": {
+      "enum": [
+        "PENDING_REVIEW",
+        "APPROVED_PUBLIC",
+        "LICENSED"
+      ],
+      "title": "RightsClass",
+      "type": "string"
+    }
+  },
+  "$id": "urn:ats:schema:market-event:v1",
+  "additionalProperties": false,
+  "description": "A derived observation, not an order or an authorization to trade.",
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "available_at": {
+      "format": "date-time",
+      "title": "Available At",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "dataset_snapshot": {
+      "$ref": "#/$defs/DatasetSnapshotRef"
+    },
+    "event_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "$ref": "#/$defs/MarketEventType"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/PointInTimeRecord"
+      },
+      "minItems": 1,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "kind": {
+      "const": "MarketEvent",
+      "default": "MarketEvent",
+      "title": "Kind",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "summary": {
+      "maxLength": 2000,
+      "minLength": 3,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "summary",
+    "confidence",
+    "available_at",
+    "producer",
+    "dataset_snapshot",
+    "evidence"
+  ],
+  "title": "MarketEvent",
+  "type": "object"
+}

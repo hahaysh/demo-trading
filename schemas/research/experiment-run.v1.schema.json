@@ -1,0 +1,244 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "DatasetSnapshotRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "observed_through",
+        "digest"
+      ],
+      "title": "DatasetSnapshotRef",
+      "type": "object"
+    },
+    "EvaluationEngine": {
+      "enum": [
+        "NATIVE",
+        "QLIB",
+        "LEAN"
+      ],
+      "title": "EvaluationEngine",
+      "type": "string"
+    },
+    "ExperimentStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "title": "ExperimentStatus",
+      "type": "string"
+    },
+    "StrategyVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "parent_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version Id"
+        },
+        "semantic_version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+          "title": "Semantic Version",
+          "type": "string"
+        },
+        "strategy_id": {
+          "format": "uuid",
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "version_id": {
+          "format": "uuid",
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "version_id",
+        "semantic_version",
+        "created_at"
+      ],
+      "title": "StrategyVersion",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:experiment-run:v1",
+  "additionalProperties": false,
+  "description": "A terminal run receipt; scheduling and execution are separate concerns.",
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "artifacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "code_artifact": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "container_image_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Container Image Digest",
+      "type": "string"
+    },
+    "dataset_snapshot": {
+      "$ref": "#/$defs/DatasetSnapshotRef"
+    },
+    "dependency_lock_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Dependency Lock Digest",
+      "type": "string"
+    },
+    "engine": {
+      "$ref": "#/$defs/EvaluationEngine"
+    },
+    "engine_artifact": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "experiment_id": {
+      "format": "uuid",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "title": "Finished At",
+      "type": "string"
+    },
+    "hypothesis": {
+      "maxLength": 2000,
+      "minLength": 3,
+      "title": "Hypothesis",
+      "type": "string"
+    },
+    "kind": {
+      "const": "ExperimentRun",
+      "default": "ExperimentRun",
+      "title": "Kind",
+      "type": "string"
+    },
+    "random_seed": {
+      "maximum": 4294967295,
+      "minimum": 0,
+      "title": "Random Seed",
+      "type": "integer"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ExperimentStatus"
+    },
+    "strategy_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Strategy Digest",
+      "type": "string"
+    },
+    "strategy_version": {
+      "$ref": "#/$defs/StrategyVersion"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "strategy_version",
+    "strategy_digest",
+    "dataset_snapshot",
+    "hypothesis",
+    "engine",
+    "engine_artifact",
+    "code_artifact",
+    "container_image_digest",
+    "dependency_lock_digest",
+    "random_seed",
+    "started_at",
+    "finished_at",
+    "status"
+  ],
+  "title": "ExperimentRun",
+  "type": "object"
+}

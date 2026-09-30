@@ -1,0 +1,519 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AssetClass": {
+      "enum": [
+        "EQUITY",
+        "ETF"
+      ],
+      "title": "AssetClass",
+      "type": "string"
+    },
+    "DatasetSnapshotRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "observed_through",
+        "digest"
+      ],
+      "title": "DatasetSnapshotRef",
+      "type": "object"
+    },
+    "MutationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_parameters": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ParameterBounds"
+          },
+          "title": "Allowed Parameters",
+          "type": "array"
+        },
+        "max_parameter_changes": {
+          "default": 3,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Parameter Changes",
+          "type": "integer"
+        }
+      },
+      "title": "MutationPolicy",
+      "type": "object"
+    },
+    "ParameterBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": {
+          "title": "Maximum",
+          "type": "number"
+        },
+        "minimum": {
+          "title": "Minimum",
+          "type": "number"
+        },
+        "name": {
+          "pattern": "^signal\\.[a-z][a-z0-9_]{1,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "step": {
+          "exclusiveMinimum": 0,
+          "title": "Step",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "minimum",
+        "maximum",
+        "step"
+      ],
+      "title": "ParameterBounds",
+      "type": "object"
+    },
+    "ParameterMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^signal\\.[a-z][a-z0-9_]{1,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "new_value": {
+          "title": "New Value",
+          "type": "number"
+        },
+        "previous_value": {
+          "title": "Previous Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "previous_value",
+        "new_value"
+      ],
+      "title": "ParameterMutation",
+      "type": "object"
+    },
+    "PolicyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "digest"
+      ],
+      "title": "PolicyRef",
+      "type": "object"
+    },
+    "PortfolioMethod": {
+      "enum": [
+        "EQUAL_WEIGHT",
+        "SCORE_WEIGHTED",
+        "VOLATILITY_TARGETED"
+      ],
+      "title": "PortfolioMethod",
+      "type": "string"
+    },
+    "PortfolioSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "cash_buffer_bps": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Cash Buffer Bps",
+          "type": "integer"
+        },
+        "max_positions": {
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Max Positions",
+          "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/PortfolioMethod"
+        },
+        "turnover_budget": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "maximum": 2,
+          "title": "Turnover Budget",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "max_positions"
+      ],
+      "title": "PortfolioSpec",
+      "type": "object"
+    },
+    "ScheduleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "decision_phase": {
+          "const": "AFTER_CLOSE",
+          "default": "AFTER_CLOSE",
+          "title": "Decision Phase",
+          "type": "string"
+        },
+        "execution_phase": {
+          "const": "NEXT_SESSION_OPEN",
+          "default": "NEXT_SESSION_OPEN",
+          "title": "Execution Phase",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "Asia/Seoul",
+          "default": "Asia/Seoul",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "title": "ScheduleSpec",
+      "type": "object"
+    },
+    "SignalParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^signal\\.[a-z][a-z0-9_]{1,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "SignalParameter",
+      "type": "object"
+    },
+    "SignalSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "$ref": "#/$defs/StrategyFamily"
+        },
+        "implementation": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/SignalParameter"
+          },
+          "title": "Parameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "family",
+        "implementation",
+        "parameters"
+      ],
+      "title": "SignalSpec",
+      "type": "object"
+    },
+    "StrategyFamily": {
+      "enum": [
+        "MOMENTUM",
+        "TREND",
+        "MEAN_REVERSION",
+        "MODEL"
+      ],
+      "title": "StrategyFamily",
+      "type": "string"
+    },
+    "StrategyVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "parent_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version Id"
+        },
+        "semantic_version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+          "title": "Semantic Version",
+          "type": "string"
+        },
+        "strategy_id": {
+          "format": "uuid",
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "version_id": {
+          "format": "uuid",
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "version_id",
+        "semantic_version",
+        "created_at"
+      ],
+      "title": "StrategyVersion",
+      "type": "object"
+    },
+    "UniverseSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_classes": {
+          "default": [
+            "EQUITY",
+            "ETF"
+          ],
+          "items": {
+            "$ref": "#/$defs/AssetClass"
+          },
+          "title": "Asset Classes",
+          "type": "array"
+        },
+        "base_index": {
+          "const": "KOSPI_200",
+          "default": "KOSPI_200",
+          "title": "Base Index",
+          "type": "string"
+        },
+        "etf_allowlist_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Etf Allowlist Id",
+          "type": "string"
+        },
+        "market": {
+          "const": "KRX",
+          "default": "KRX",
+          "title": "Market",
+          "type": "string"
+        },
+        "membership_snapshot_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Membership Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "membership_snapshot_id",
+        "etf_allowlist_id"
+      ],
+      "title": "UniverseSpec",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:strategy:v1",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "code_artifact": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "container_image_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Container Image Digest",
+      "type": "string"
+    },
+    "dataset_snapshot": {
+      "$ref": "#/$defs/DatasetSnapshotRef"
+    },
+    "features": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Features",
+      "type": "array"
+    },
+    "kind": {
+      "const": "Strategy",
+      "default": "Strategy",
+      "title": "Kind",
+      "type": "string"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mutation_policy": {
+      "$ref": "#/$defs/MutationPolicy"
+    },
+    "mutations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ParameterMutation"
+      },
+      "title": "Mutations",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 3,
+      "title": "Name",
+      "type": "string"
+    },
+    "portfolio": {
+      "$ref": "#/$defs/PortfolioSpec"
+    },
+    "prompt_versions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Prompt Versions",
+      "type": "array"
+    },
+    "provenance_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Provenance Hash",
+      "type": "string"
+    },
+    "research_hypothesis": {
+      "maxLength": 2000,
+      "minLength": 3,
+      "title": "Research Hypothesis",
+      "type": "string"
+    },
+    "risk_policy": {
+      "$ref": "#/$defs/PolicyRef"
+    },
+    "schedule": {
+      "$ref": "#/$defs/ScheduleSpec",
+      "default": {
+        "decision_phase": "AFTER_CLOSE",
+        "execution_phase": "NEXT_SESSION_OPEN",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    "signal": {
+      "$ref": "#/$defs/SignalSpec"
+    },
+    "universe": {
+      "$ref": "#/$defs/UniverseSpec"
+    },
+    "version": {
+      "$ref": "#/$defs/StrategyVersion"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "research_hypothesis",
+    "universe",
+    "signal",
+    "portfolio",
+    "risk_policy",
+    "mutation_policy",
+    "dataset_snapshot",
+    "code_artifact",
+    "container_image_digest",
+    "provenance_hash"
+  ],
+  "title": "StrategySpec",
+  "type": "object"
+}

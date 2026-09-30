@@ -1,0 +1,19 @@
+api_version: ats/v1
+kind: PromotionPolicy
+metadata:
+  policy_id: promotion-policy
+  version: 0.1.0
+  status: DRAFT
+  owner: operator
+gates:
+  min_net_oos_sharpe: 0.8
+  max_drawdown: 0.15
+  walk_forward_folds: 5
+  min_positive_excess_folds: 4
+  min_deflated_sharpe_confidence: 0.95
+  require_dual_engine_reproducibility: true
+  allow_data_integrity_violations: false
+  min_paper_sessions: 20
+  max_hard_risk_breaches: 0
+  require_human_approval: true
+agent_editable: false

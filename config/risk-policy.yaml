@@ -1,0 +1,25 @@
+api_version: ats/v1
+kind: RiskPolicy
+metadata:
+  policy_id: paper-risk-policy
+  version: 0.1.0
+  status: DRAFT
+  owner: operator
+scope:
+  market: KRX
+  paper_only: true
+  long_only: true
+  allowed_asset_classes:
+    - EQUITY
+    - ETF
+limits:
+  max_symbol_weight: 0.10
+  max_gross_exposure: 1.0
+  daily_portfolio_loss_halt: 0.01
+  portfolio_drawdown_halt: 0.15
+  max_price_age_seconds: 900
+kill_switch:
+  fail_closed: true
+  reject_orders_while_active: true
+  human_reset_required: true
+agent_editable: false

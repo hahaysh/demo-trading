@@ -1,0 +1,226 @@
+# Governed Self-Improving Korean ATS
+
+## Objective
+
+Build a Python 3.11 automated trading system for Korean equities and ETFs. The
+system collects point-in-time market, disclosure, news, and approved public
+community data, produces end-of-day signals for the next trading session, and
+improves strategies through an offline champion/challenger research loop.
+
+The first release ends at deterministic backtesting and Korea Investment Open
+API paper trading. Recursive improvement creates immutable candidates; it does
+not modify a running strategy, risk controls, or broker code.
+
+## Confirmed Scope
+
+- Market: KOSPI 200 constituents and an operator-approved major ETF allowlist.
+- Cadence: end-of-day analysis and next-session orders.
+- Broker: Korea Investment Open API paper environment only.
+- Research: parameter and approved strategy-composition mutation first, then
+  governed factor and model proposals.
+- Sources: KIS, DART, KIND/KRX, licensed or public news, and explicitly approved
+  public Telegram channels, communities, and blogs.
+- Hosting target: Azure with pay-per-use and scale-to-zero services where
+  practical, below KRW 500,000 per month during the pilot.
+- Risk defaults: at most 10% per symbol, a 1% daily portfolio loss halt, and a
+  15% portfolio drawdown halt.
+
+## Explicit Exclusions
+
+- Live trading, leverage, shorting, derivatives, and intraday strategies.
+- Private channels, material non-public information, or unapproved scraping.
+- Autonomous promotion or rollback without an explicit human decision.
+- In-place mutation of a champion.
+- Generated code with broker credentials, unrestricted network access,
+  arbitrary dependency installation, or permission to alter risk controls.
+
+## Non-Negotiable Invariants
+
+1. A champion is immutable. Every challenger has a parent and unique version.
+2. Only an approved champion may produce paper order intents.
+3. Strategy output is advisory until an independent risk service approves it.
+4. Risk policy and broker implementations are outside every mutation surface.
+5. All research and signals use point-in-time data with provenance.
+6. LLM analysis is a cited, uncertainty-bearing feature, never an order.
+7. Promotion requires independent evaluation, a paper observation period, and
+   explicit human approval.
+8. Failures in freshness, lineage, reproducibility, or risk fail closed.
+
+## Strategy Lifecycle
+
+The supported states are:
+
+`DRAFT -> VALIDATED -> BACKTESTED -> PAPER -> CHAMPION`
+
+Terminal or exceptional states are `RETIRED` and `QUARANTINED`. State changes
+are append-only governance events. A `CHAMPION` is never moved backward or
+edited; rollback selects a previously approved immutable version.
+
+## Reference Architecture
+
+- OpenBB patterns inform normalized provider adapters and optional enrichment.
+- TradingAgents patterns inform bounded analyst roles and structured reports.
+- Qlib is the primary feature, model, and rolling-research engine.
+- RD-Agent patterns inform separate hypothesis and implementation roles.
+- LEAN independently certifies execution behavior and deterministic replay.
+- Korea Investment's public examples inform paper/production separation and the
+  strategy-to-LEAN flow. No source is copied until license review permits it.
+
+`StrategySpec` is the source of truth between research, certification, signal
+evaluation, and governance. Explicit adapters translate it to Qlib and LEAN.
+
+## Delivery Plan
+
+### Phase 0: Governance and Architecture Gates
+
+- Record ADRs for system boundaries, immutable lineage, dual-engine evaluation,
+  data rights, and Azure service selection.
+- Maintain operator-owned source, risk, experiment-budget, and promotion
+  policies. Agents may propose changes but cannot activate them.
+- Document source terms, retention, redistribution, rate limits, and approved
+  use before implementing each connector.
+- Restore Azure subscription visibility and validate policy, region, quota, and
+  cost before infrastructure scaffolding. Deployment requires a later approval.
+
+Acceptance: boundaries and lifecycle are versioned; policy ownership is clear;
+no connector or cloud resource is created without its prerequisite gate.
+
+### Phase 1: Repository Foundation and Contracts
+
+- Establish a Python 3.11 package managed with `uv`.
+- Configure Ruff, Pyright, pytest, Hypothesis, and pre-commit.
+- Define frozen Pydantic contracts for strategies, point-in-time records,
+  snapshots, experiments, evaluations, promotion, orders, and risk decisions.
+- Generate versioned JSON Schemas from those contracts.
+- Add explicit Qlib, LEAN, and signal-evaluator adapter boundaries.
+
+Acceptance: lint, type checks, and tests pass; schemas are reproducible; tests
+prove deterministic lineage and rejection of invalid mutation boundaries.
+
+### Phase 2: Point-in-Time Data Plane
+
+- Implement connector ports and separately approved adapters for KIS, DART,
+  KIND/KRX, OpenBB, and approved public text sources.
+- Store raw payloads immutably as content-addressed artifacts with verified
+  digests, then normalize records as partitioned Parquet.
+- Preserve source identifiers, `published_at`, `observed_at`, `effective_at`,
+  revision, content hash, rights class, and credibility tier.
+- Add symbol resolution, historical KOSPI 200 membership, corporate actions,
+  calendars, delistings, deduplication, quality checks, and quarantine.
+- Freeze content-addressed snapshots before signal calculation, each with an
+  immutable historical-universe membership manifest and digest.
+
+Acceptance: future information cannot enter a snapshot; corrections do not
+overwrite history; payload and universe-manifest digests reproduce each frozen
+input set; stale or failed inputs reduce confidence or halt processing.
+
+### Phase 3: Baselines and Dual-Engine Certification
+
+- Implement long-only benchmark, trend/momentum, and mean-reversion baselines.
+- Model fees, taxes, spread, slippage, liquidity, holidays, corporate actions,
+  and historical universe membership.
+- Use Qlib for rolling research and LEAN for independent certification.
+- Run purged walk-forward evaluation with embargo, regime slices, cost stress,
+  sensitivity analysis, capacity checks, and multiple-testing correction.
+
+Initial configurable promotion gates:
+
+- Net out-of-sample Sharpe ratio at least 0.8.
+- Maximum drawdown no greater than 15%.
+- Positive benchmark excess return in at least four of five folds.
+- 95% deflated-Sharpe confidence.
+- Native/Qlib/LEAN results within documented tolerances.
+- No point-in-time or data-integrity violation.
+
+Acceptance: deterministic rebuilds produce matching orders and returns within
+declared tolerances, otherwise the candidate is quarantined.
+
+### Phase 4: Paper Execution and Independent Risk
+
+- Define `BrokerPort` and implement `KisPaperBroker` using official interfaces.
+- Add credential isolation, token caching, rate limiting, idempotent order IDs,
+  retry classification, and end-of-day reconciliation.
+- Implement a separate pre-trade risk service for universe, freshness, position,
+  exposure, duplicate order, market state, daily loss, and drawdown checks.
+- Exercise token expiry, throttling, duplicate schedules, partial/rejected fills,
+  holidays, stale prices, outages, retries, and kill-switch recovery.
+
+Acceptance: all order intents pass through risk; hard limits cannot be bypassed;
+historical replay and paper failure drills complete without unresolved defects.
+
+### Phase 5: Recursive Improvement Stage A
+
+- Register every challenger with parent, snapshot, hypothesis, mutation diff,
+  environment digest, seed, costs, metrics, and artifacts.
+- Run weekly parameter and approved-composition searches with bounded budgets.
+- Send passing candidates to shadow/paper status for at least 20 sessions.
+- Require zero hard-risk breaches, reproducibility, acceptable realized
+  slippage, and human approval before champion selection.
+
+Acceptance: the full lineage is auditable and rollback selects, rather than
+modifies, an earlier champion.
+
+### Phase 6: Recursive Improvement Stage B
+
+- Add bounded Foundry roles for disclosure, news, sentiment, and skeptical risk
+  analysis with citations, timestamps, uncertainty, and source diversity.
+- Cap rumor influence so it cannot independently trigger an order.
+- Run generated factor/model artifacts only in isolated Azure ML jobs with
+  pinned images, read-only snapshots, no broker secrets, restricted egress,
+  dependency scanning, and compute/time budgets.
+- Certify the exact exported signal stream through Qlib and LEAN.
+
+Acceptance: sandbox escape tests fail; prompts, policies, and evaluator code are
+versioned outside recursive modification.
+
+### Phase 7: Operator Control Plane and Azure Pilot
+
+- Build a FastAPI control plane for snapshots, jobs, strategy lineage,
+  evaluations, paper positions/orders, approval, rollback, quarantine, and the
+  kill switch.
+- Protect access with Entra ID and append-only audit events.
+- Correlate snapshot, strategy, experiment, order, model, prompt, latency, token,
+  and cost identifiers with MLflow/Azure ML and Application Insights.
+- After separate approval, generate Bicep and CI for Container Apps, ACR, ADLS
+  Gen2, PostgreSQL, Azure ML, Foundry, Storage Queue, Key Vault, managed
+  identities, Application Insights, and Log Analytics.
+
+Do not add AKS, Redis, Event Hubs, or Azure AI Search without measured need.
+
+Acceptance: security and cost checks pass, rollback is rehearsed, and at least
+20 paper sessions complete with no unresolved hard-risk or reconciliation issue.
+Live trading remains a separately planned future project.
+
+## Verification Standard
+
+Run the following local quality gate when the relevant code exists:
+
+```powershell
+uv lock --check
+uv run ruff check .
+uv run pyright
+uv run pytest
+```
+
+Tests must be deterministic, use fixed seeds, and avoid network access at unit
+scope. Contract tests validate schemas and adapters. Property tests cover
+parameter bounds, immutable lineage, risk non-bypass, deterministic hashes, and
+future-data exclusion. Recorded fixtures cover connector corrections, rate
+limits, duplicates, and timing. Live smoke tests use only approved services and
+paper credentials.
+
+## Azure Gate
+
+The target pilot architecture is documented but not approved for scaffolding or
+deployment. Subscription discovery currently returns HTTP 403. Region, SKU,
+quota, policy, and monthly cost must be validated after access is restored and
+before any file is added under `infra/`.
+
+## Plan Stewardship
+
+- This document is the source of truth for scope, dependencies, phases, and
+  acceptance criteria.
+- `docs/plans/status.md` tracks changing execution state and evidence.
+- `docs/adr/` records durable architectural decisions.
+- `.github/agents/ats-plan-steward.agent.md` reconciles proposed changes and
+  updates planning records, but does not implement or deploy the system.

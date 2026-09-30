@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvaluationMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "deflated_sharpe_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deflated Sharpe Confidence"
+        },
+        "max_drawdown": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Max Drawdown",
+          "type": "number"
+        },
+        "net_benchmark_excess_return": {
+          "title": "Net Benchmark Excess Return",
+          "type": "number"
+        },
+        "net_oos_sharpe": {
+          "title": "Net Oos Sharpe",
+          "type": "number"
+        },
+        "observation_count": {
+          "minimum": 2,
+          "title": "Observation Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "net_oos_sharpe",
+        "max_drawdown",
+        "net_benchmark_excess_return",
+        "observation_count"
+      ],
+      "title": "EvaluationMetrics",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:evaluation-result:v1",
+  "additionalProperties": false,
+  "description": "One engine's measured results; never a promotion or risk decision.",
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "minItems": 1,
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "data_integrity_violations": {
+      "minimum": 0,
+      "title": "Data Integrity Violations",
+      "type": "integer"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "evaluation_id": {
+      "format": "uuid",
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "experiment_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Experiment Digest",
+      "type": "string"
+    },
+    "experiment_id": {
+      "format": "uuid",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "EvaluationResult",
+      "default": "EvaluationResult",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metrics": {
+      "$ref": "#/$defs/EvaluationMetrics"
+    },
+    "period_end": {
+      "format": "date-time",
+      "title": "Period End",
+      "type": "string"
+    },
+    "period_start": {
+      "format": "date-time",
+      "title": "Period Start",
+      "type": "string"
+    },
+    "protocol": {
+      "$ref": "#/$defs/ArtifactRef"
+    }
+  },
+  "required": [
+    "evaluation_id",
+    "experiment_id",
+    "experiment_digest",
+    "protocol",
+    "evaluated_at",
+    "period_start",
+    "period_end",
+    "metrics",
+    "artifacts",
+    "data_integrity_violations"
+  ],
+  "title": "EvaluationResult",
+  "type": "object"
+}
