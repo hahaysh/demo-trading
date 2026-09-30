@@ -69,6 +69,7 @@ from ats.domain.strategy import (
     create_challenger,
     is_lifecycle_transition_allowed,
 )
+from ats.domain.universe import UniverseMember, UniverseMembershipArtifact
 
 __all__ = [
     "ArtifactRef",
@@ -124,6 +125,8 @@ __all__ = [
     "SourceEntry",
     "UniverseSpec",
     "UniverseMembershipManifest",
+    "UniverseMember",
+    "UniverseMembershipArtifact",
     "create_challenger",
     "evidence_digest",
     "is_lifecycle_transition_allowed",

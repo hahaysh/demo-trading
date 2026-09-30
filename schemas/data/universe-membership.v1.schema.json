@@ -1,0 +1,150 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AssetClass": {
+      "enum": [
+        "EQUITY",
+        "ETF"
+      ],
+      "title": "AssetClass",
+      "type": "string"
+    },
+    "UniverseMember": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_class": {
+          "$ref": "#/$defs/AssetClass"
+        },
+        "effective_from": {
+          "format": "date-time",
+          "title": "Effective From",
+          "type": "string"
+        },
+        "effective_until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Until"
+        },
+        "evidence": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "instrument_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "membership_basis": {
+          "enum": [
+            "KOSPI_200",
+            "ETF_ALLOWLIST"
+          ],
+          "title": "Membership Basis",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "asset_class",
+        "membership_basis",
+        "observed_at",
+        "effective_from",
+        "evidence"
+      ],
+      "title": "UniverseMember",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:universe-membership:v1",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+    },
+    "kind": {
+      "const": "UniverseMembershipArtifact",
+      "default": "UniverseMembershipArtifact",
+      "title": "Kind",
+      "type": "string"
+    },
+    "manifest_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "market": {
+      "const": "KRX",
+      "default": "KRX",
+      "title": "Market",
+      "type": "string"
+    },
+    "members": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/UniverseMember"
+      },
+      "title": "Members",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "as_of"
+  ],
+  "title": "UniverseMembershipArtifact",
+  "type": "object"
+}

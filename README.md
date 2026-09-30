@@ -175,3 +175,25 @@ are not a race-proof sandbox. A successful read proves byte integrity, not sourc
 rights, timestamp truth, normalized-content correctness, or the meaning of a
 revision report. Consumers must use verified bytes or reverify when reading again.
 Actual symlink integration tests may be skipped when OS privileges are unavailable.
+
+## Historical Universe Membership
+
+`UniverseMembershipArtifact` holds the actual declarations behind a snapshot's
+`UniverseMembershipManifest` reference. `UniverseMember` includes an instrument,
+asset class, membership basis, observation time, effective interval, and evidence.
+Equities use `KOSPI_200`; ETFs use `ETF_ALLOWLIST`. These labels are not proof of
+exchange membership or operator approval.
+
+Use `resolver.read_universe_membership(reference)` to verify and parse the exact
+JSON bytes and match the manifest ID/as-of horizon. Use
+`resolver.select_universe_members_as_of(snapshot, at=cutoff)` to return sorted
+members both known and effective at that instant. Observation and interval start
+are inclusive; interval end is exclusive (or open when omitted). Overlapping
+declarations and queries beyond the snapshot/manifest horizons fail. For explicit
+lookup, `artifact.require_member(instrument_id, at=cutoff)` rejects absent members.
+
+Source evidence, completeness, interval correction provenance, and ETF approval
+authority are not authenticated. Later-known removals must not be backdated into
+an earlier declaration. Membership selection is separate from record selection
+and does not authorize orders. The existing data schema generator now includes
+`schemas/data/universe-membership.v1.schema.json`.

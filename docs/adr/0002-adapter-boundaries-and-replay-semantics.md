@@ -43,9 +43,10 @@ The test doubles demonstrate contract conformance, not actual engine equivalence
    announcement can have a future effective date; observation availability and
    economic applicability must not be conflated. Missing source timestamps must
    not be invented.
-4. **Universe provenance:** The current manifest is a reference with a supplied
-   digest. Verify membership bytes and when that membership was known; an old
-   `as_of` value alone does not prove historical availability.
+4. **Universe provenance:** Local artifact resolution now verifies bytes and
+   declared membership observation/effective times. Authenticate source evidence
+   and interval correction history before real use; an old `as_of` value alone
+   does not prove historical availability.
 5. **Derived-event availability:** Define whether retrospective extraction is
    allowed in a separate research protocol. It must not be presented as an event
    available to an earlier operational signal.
@@ -93,10 +94,11 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Verify historical-universe membership artifacts with actual members, observation
-times, and effective intervals, using the local resolver and synthetic fixtures.
-Review source-specific ordering and completeness before real connectors or engine
-replay. Source rights, independent risk, human promotion, and cloud gates remain.
+Combine verified record and membership selection into a local per-decision input
+bundle. Bind snapshot, cutoff, and revision evidence and exclude out-of-universe
+instrument records. Define market-wide record handling. Review source-specific
+ordering and completeness before real connectors or engine replay. All source,
+risk, promotion, and cloud gates remain.
 
 ## Implemented Local Artifact Verification
 
@@ -105,7 +107,8 @@ a trusted configured root. It accepts digest references, not caller-supplied
 artifact paths or URLs. Reads are bounded (16 MiB by default), must be regular
 files, and reject static symlinks/reparse points beneath the root. The resolver
 returns immutable bytes only after exact SHA-256 verification; it never fetches,
-repairs, overwrites, decodes, or installs artifact content and has no read cache.
+repairs, overwrites, or installs artifact content and has no read cache. Explicit
+typed readers may decode bytes only after digest verification.
 
 `select_verified_records_as_of` first resolves selection, then verifies raw bytes
 for every visible revision (including superseded ones) and all applicable
@@ -119,6 +122,31 @@ Normalized content hashes and universe semantics are not checked by raw-byte
 verification. A trusted read-only directory is required; these portable checks
 do not defend against hostile concurrent path replacement or provide a sandbox.
 Use returned verified bytes, or reverify on every subsequent read.
+
+## Implemented Historical Universe Artifact
+
+The existing `UniverseMembershipManifest` remains a digest reference. Its payload
+is now defined by `UniverseMembershipArtifact` with a matching manifest ID,
+KRX market, as-of horizon, and immutable `UniverseMember` declarations. Each member
+pins instrument, equity/ETF class, KOSPI 200/ETF-allowlist basis, observation time,
+effective interval, and evidence reference.
+
+`read_universe_membership` verifies the exact JSON bytes and reference ID/horizon.
+`select_universe_members_as_of` also enforces the snapshot cutoff and returns
+members observed by the requested instant and effective in `[from, until)`;
+an absent end is open. Cutoffs beyond the manifest horizon fail. Known future
+additions and late-observed historical memberships do not enter earlier selections.
+Results are sorted by instrument; adjacent intervals are allowed, but duplicate
+or overlapping intervals for an instrument fail closed, regardless of input order.
+
+These are supplied declarations, not authenticated exchange or operator evidence.
+The artifact is archival: it can contain later observations which selection omits.
+Every interval endpoint must be known at its declared observation time. Encoding
+a later correction into an earlier declaration is invalid provenance; correction
+reconciliation and source completeness still require a separate protocol. Evidence
+references are retained but not recursively resolved or interpreted here. Empty
+or absent membership does not prove universal exclusion or permission to trade.
+No changes are made to engines, record selection, risk, or broker execution.
 
 ## Acceptance Evidence
 
@@ -135,3 +163,6 @@ Use returned verified bytes, or reverify on every subsequent read.
   skipped on this Windows host; simulated reparse rejection was tested.
 - Real Qlib/LEAN performance, data leakage resistance during replay, and numerical
   agreement require separate integration evidence and are not yet validated.
+- Universe tests in `tests/unit/data/test_artifacts.py` cover observed/effective
+   boundaries, duplicate/overlapping intervals, JSON round trips, UTC-equivalent
+   cutoffs, byte corruption, reference mismatch, and horizon extrapolation.

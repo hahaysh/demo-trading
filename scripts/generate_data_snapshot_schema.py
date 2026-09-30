@@ -1,4 +1,4 @@
-"""Generate or verify the versioned data snapshot and market event schemas."""
+"""Generate or verify snapshot, event, and universe membership schemas."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 from ats.schema import (
     render_data_snapshot_json_schema,
     render_market_event_json_schema,
+    render_universe_membership_json_schema,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,9 @@ def main() -> int:
         SCHEMA_PATH.with_name(
             "market-event.v1.schema.json"
         ): render_market_event_json_schema(),
+        SCHEMA_PATH.with_name(
+            "universe-membership.v1.schema.json"
+        ): render_universe_membership_json_schema(),
     }
     failed = False
     for path, rendered in schemas.items():

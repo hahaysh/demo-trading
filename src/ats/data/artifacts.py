@@ -10,8 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ats.data.asof import RevisionOrder, select_records_as_of
-from ats.domain.data import DataSnapshot, PointInTimeRecord
+from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.strategy import ArtifactRef
+from ats.domain.universe import UniverseMember, UniverseMembershipArtifact
 
 
 class ArtifactResolutionError(ValueError):
@@ -81,6 +82,31 @@ class LocalArtifactResolver:
     def read_revision_evidence(self, order: RevisionOrder) -> bytes:
         order = RevisionOrder.model_validate(order.model_dump())
         return self.read_artifact(order.evidence)
+
+    def read_universe_membership(
+        self, reference: UniverseMembershipManifest
+    ) -> UniverseMembershipArtifact:
+        reference = UniverseMembershipManifest.model_validate(reference.model_dump())
+        artifact = UniverseMembershipArtifact.model_validate_json(
+            self.read_digest(reference.digest)
+        )
+        if (
+            artifact.manifest_id != reference.manifest_id
+            or artifact.as_of != reference.as_of
+        ):
+            raise ArtifactResolutionError("universe manifest reference mismatch")
+        return artifact
+
+    def select_universe_members_as_of(
+        self, snapshot: DataSnapshot, *, at: datetime
+    ) -> tuple[UniverseMember, ...]:
+        snapshot = DataSnapshot.model_validate(snapshot.model_dump())
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise ArtifactResolutionError("universe cutoff must be timezone-aware")
+        if at.astimezone(UTC) > snapshot.observed_through.astimezone(UTC):
+            raise ArtifactResolutionError("universe cutoff exceeds snapshot freeze")
+        artifact = self.read_universe_membership(snapshot.universe_membership)
+        return artifact.members_at(at)
 
     def select_verified_records_as_of(
         self,

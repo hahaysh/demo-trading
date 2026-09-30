@@ -1,7 +1,7 @@
 import hashlib
 import os
 import stat
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +12,7 @@ from ats.data.artifacts import ArtifactResolutionError, LocalArtifactResolver
 from ats.data.asof import AsOfSelectionError, RevisionOrder
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.strategy import ArtifactRef
+from ats.domain.universe import UniverseMember, UniverseMembershipArtifact
 
 FREEZE = datetime(2026, 9, 30, 7, tzinfo=UTC)
 
@@ -294,3 +295,205 @@ def test_unreadable_artifact_fails_closed(
     monkeypatch.setattr(Path, "open", deny_open)
     with pytest.raises(ArtifactResolutionError, match="missing or unreadable"):
         LocalArtifactResolver(tmp_path).read_digest(digest)
+
+
+def _member(**changes: object) -> UniverseMember:
+    return UniverseMember.model_validate(
+        {
+            "instrument_id": "krx-005930",
+            "asset_class": "EQUITY",
+            "membership_basis": "KOSPI_200",
+            "observed_at": FREEZE - timedelta(days=2),
+            "effective_from": FREEZE - timedelta(days=1),
+            "effective_until": FREEZE + timedelta(days=1),
+            "evidence": ArtifactRef(
+                artifact_id="membership-source",
+                version="1.0.0",
+                digest=_digest(b"membership evidence"),
+            ),
+            **changes,
+        }
+    )
+
+
+def _universe(*members: UniverseMember) -> UniverseMembershipArtifact:
+    return UniverseMembershipArtifact(
+        manifest_id="test-universe", as_of=FREEZE, members=members
+    )
+
+
+def test_membership_separates_knowledge_from_economic_effect() -> None:
+    future = _member(effective_from=FREEZE + timedelta(hours=1), effective_until=None)
+    assert _universe(future).members_at(FREEZE) == ()
+    late = _member(observed_at=FREEZE)
+    artifact = _universe(late)
+    with pytest.raises(ValueError, match="not a known effective"):
+        artifact.require_member(
+            late.instrument_id, at=FREEZE - timedelta(microseconds=1)
+        )
+    assert artifact.require_member(late.instrument_id, at=FREEZE) == late
+
+
+def test_membership_start_is_inclusive_and_end_is_exclusive() -> None:
+    member = _member(effective_from=FREEZE - timedelta(hours=1), effective_until=FREEZE)
+    artifact = _universe(member)
+    assert artifact.members_at(member.effective_from) == (member,)
+    assert artifact.members_at(FREEZE - timedelta(microseconds=1)) == (member,)
+    assert artifact.members_at(FREEZE) == ()
+    next_member = _member(
+        observed_at=FREEZE, effective_from=FREEZE, effective_until=None
+    )
+    assert _universe(next_member, member).members_at(FREEZE) == (next_member,)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"effective_until": FREEZE - timedelta(days=1)},
+        {"effective_until": FREEZE - timedelta(days=2)},
+        {"observed_at": datetime(2026, 9, 30)},
+        {"membership_basis": "ETF_ALLOWLIST"},
+        {"asset_class": "ETF"},
+        {"asset_class": "FUTURE"},
+    ],
+)
+def test_invalid_membership_declarations_are_rejected(
+    changes: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        _member(**changes)
+
+
+@pytest.mark.parametrize("open_ended", [True, False])
+def test_overlapping_memberships_fail_closed(open_ended: bool) -> None:
+    first = _member(effective_until=None if open_ended else FREEZE)
+    overlapping = _member(effective_from=FREEZE - timedelta(hours=1))
+    with pytest.raises(ValidationError, match="overlapping"):
+        _universe(first, overlapping)
+    with pytest.raises(ValidationError, match="overlapping"):
+        _universe(first, first)
+
+
+def test_manifest_rejects_future_observations_and_cutoff_extrapolation() -> None:
+    with pytest.raises(ValidationError, match="observation exceeds"):
+        _universe(_member(observed_at=FREEZE + timedelta(seconds=1)))
+    for cutoff in (datetime(2026, 9, 30), FREEZE + timedelta(seconds=1)):
+        with pytest.raises(ValueError):
+            _universe(_member()).members_at(cutoff)
+
+
+def test_membership_round_trip_sorting_and_timezone_equivalence() -> None:
+    equity = _member()
+    etf = _member(
+        instrument_id="krx-069500", asset_class="ETF", membership_basis="ETF_ALLOWLIST"
+    )
+    artifact = _universe(etf, equity)
+    rebuilt = UniverseMembershipArtifact.model_validate_json(artifact.model_dump_json())
+    assert rebuilt == artifact
+    assert rebuilt.members_at(FREEZE) == (equity, etf)
+    assert artifact.members_at(FREEZE.astimezone(timezone(timedelta(hours=9)))) == (
+        equity,
+        etf,
+    )
+    with pytest.raises(ValidationError):
+        artifact.members[0].__setattr__("instrument_id", "modified")
+    with pytest.raises(ValueError, match="not a known effective"):
+        _universe().require_member(equity.instrument_id, at=FREEZE)
+
+
+def test_membership_selection_revalidates_unchecked_copies() -> None:
+    member = _member()
+    artifact = _universe(member).model_copy(update={"members": (member, member)})
+    with pytest.raises(ValidationError, match="overlapping"):
+        artifact.members_at(FREEZE)
+
+
+def _universe_reference(
+    root: Path, artifact: UniverseMembershipArtifact
+) -> UniverseMembershipManifest:
+    return UniverseMembershipManifest(
+        manifest_id=artifact.manifest_id,
+        as_of=artifact.as_of,
+        digest=_store(root, artifact.model_dump_json().encode("utf-8")),
+    )
+
+
+def test_resolver_binds_verified_membership_bytes_to_snapshot(tmp_path: Path) -> None:
+    member = _member()
+    artifact = _universe(member)
+    reference = _universe_reference(tmp_path, artifact)
+    snapshot = DataSnapshot.model_validate(
+        {**_snapshot().model_dump(), "universe_membership": reference}
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    assert resolver.read_universe_membership(reference) == artifact
+    before = snapshot.content_digest()
+    assert resolver.select_universe_members_as_of(snapshot, at=FREEZE) == (member,)
+    assert (
+        resolver.select_universe_members_as_of(
+            snapshot, at=member.observed_at - timedelta(seconds=1)
+        )
+        == ()
+    )
+    assert snapshot.content_digest() == before
+
+
+@pytest.mark.parametrize("field", ["manifest_id", "as_of"])
+def test_universe_reference_metadata_must_match_payload(
+    tmp_path: Path, field: str
+) -> None:
+    reference = _universe_reference(tmp_path, _universe(_member()))
+    changed = UniverseMembershipManifest.model_validate(
+        {
+            **reference.model_dump(),
+            field: "different-universe"
+            if field == "manifest_id"
+            else FREEZE - timedelta(seconds=1),
+        }
+    )
+    with pytest.raises(ArtifactResolutionError, match="reference mismatch"):
+        LocalArtifactResolver(tmp_path).read_universe_membership(changed)
+
+
+@pytest.mark.parametrize("failure", ["missing", "tampered"])
+def test_universe_resolver_rejects_missing_or_changed_bytes(
+    tmp_path: Path, failure: str
+) -> None:
+    reference = _universe_reference(tmp_path, _universe(_member()))
+    path = tmp_path / "sha256" / reference.digest.removeprefix("sha256:")
+    if failure == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"{}")
+    with pytest.raises(ArtifactResolutionError):
+        LocalArtifactResolver(tmp_path).read_universe_membership(reference)
+
+
+@pytest.mark.parametrize("payload", [b"not json", b"{}", b"[]", b"\xff"])
+def test_digest_valid_but_invalid_membership_json_is_rejected(
+    tmp_path: Path, payload: bytes
+) -> None:
+    reference = UniverseMembershipManifest(
+        manifest_id="test-universe", as_of=FREEZE, digest=_store(tmp_path, payload)
+    )
+    with pytest.raises(ValidationError):
+        LocalArtifactResolver(tmp_path).read_universe_membership(reference)
+
+
+def test_universe_cannot_extrapolate_past_manifest_or_snapshot(tmp_path: Path) -> None:
+    artifact = UniverseMembershipArtifact.model_validate(
+        {**_universe(_member()).model_dump(), "as_of": FREEZE - timedelta(hours=1)}
+    )
+    reference = _universe_reference(tmp_path, artifact)
+    snapshot = DataSnapshot.model_validate(
+        {**_snapshot().model_dump(), "universe_membership": reference}
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    with pytest.raises(ValueError, match="manifest horizon"):
+        resolver.select_universe_members_as_of(snapshot, at=FREEZE)
+    with pytest.raises(ArtifactResolutionError, match="snapshot freeze"):
+        resolver.select_universe_members_as_of(
+            snapshot, at=FREEZE + timedelta(seconds=1)
+        )
+    with pytest.raises(ArtifactResolutionError, match="timezone-aware"):
+        resolver.select_universe_members_as_of(snapshot, at=datetime(2026, 9, 30))

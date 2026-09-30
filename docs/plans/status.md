@@ -6,7 +6,7 @@ Last updated: 2026-09-30
 
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
 and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
-verification are implemented.
+verification are implemented, including historical universe artifact resolution.
 
 ## Completed
 
@@ -60,7 +60,12 @@ verification are implemented.
     exact-byte verification, static link/reparse rejection, and no stale fallback.
     Verified as-of selection checks all visible raw revisions and ordering
     evidence while leaving future artifact files unread.
-- Latest local checks on 2026-09-30: 304 tests passed; 2 actual symlink tests
+- Implemented immutable `UniverseMember` and `UniverseMembershipArtifact`
+    contracts, with observation/effective-time selection and rejection of
+    overlapping intervals. The resolver verifies artifact bytes, manifest ID,
+    and horizon before returning effective, known members for a snapshot cutoff.
+- Added the universe membership artifact to the existing data schema generator.
+- Latest local checks on 2026-09-30: 330 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -91,11 +96,10 @@ verification are implemented.
 
 ## Next Executable Step
 
-Define and verify a historical-universe membership artifact with actual members,
-observation times, and effective intervals using local fixtures. Resolve its
-bytes through the artifact resolver, and reject membership not known at the
-decision cutoff. Source-specific completeness and engine replay remain gated
-on the decisions in ADR 0002.
+Combine verified record selection and universe membership selection into one
+local per-decision input bundle with explicit snapshot, cutoff, and revision-order
+provenance. Test that out-of-universe instrument records cannot enter that bundle
+and define handling of market-wide records. Keep actual engines and sources gated.
 
 ## Known Boundaries
 
@@ -106,8 +110,8 @@ on the decisions in ADR 0002.
     without partial results; persistent quarantine is not implemented.
 - Use `LocalArtifactResolver.select_verified_records_as_of` when byte integrity
     is required; the original pure selector remains filesystem-free. The resolver
-    verifies raw payload digests, not normalized `content_hash` values, universe
-    membership contents, or semantic agreement of an order with its report.
+    verifies raw payload digests, not normalized `content_hash` values or semantic
+    agreement of an order with its report. Universe resolution is a separate call.
 - The artifact root must be trusted and protected from concurrent untrusted
     writes. Static link checks are not a race-proof filesystem sandbox. The
     resolver has no write/install/fetch interface, and every read rechecks bytes;
@@ -159,10 +163,18 @@ on the decisions in ADR 0002.
     analysis needs a separately documented protocol before use in evaluations.
 - Rights labels are metadata, not proof of legal approval; runtime source-policy
     enforcement, authenticated approvals, and append-only persistence remain open.
-- Universe membership currently contains an external manifest reference and
-    supplied digest, not its members or a computed manifest digest. Domain
-    contracts alone do not verify bytes; raw payload verification now requires
-    the explicit local resolver path.
+- Snapshot membership references remain unchanged. `read_universe_membership`
+    resolves their exact JSON bytes and checks ID/horizon; membership selection
+    requires observed-at <= cutoff and effective-from <= cutoff < effective-until
+    (an absent end is open). Empty/unseen membership never authorizes an instrument.
+- Membership evidence artifacts, observation timestamps, source completeness,
+    and ETF approval authority remain unverified claims. Interval corrections
+    cannot overwrite history; overlapping declarations are rejected, not resolved.
+    Callers must supply as-known interval declarations and separately verified
+    evidence; a later-known removal cannot be inserted into an earlier declaration.
+- Membership selection is not yet combined with record selection, engine replay,
+    or order risk checks. Manifest JSON is an archival container, not proof that
+    the whole file existed at each earlier replay timestamp.
 - Snapshot digests identify serialized snapshots, including record ordering and
     creation metadata. Order-independent content-set hashing is not implemented.
 - Event confidence is not a trade decision. Rumor-influence caps and independent
@@ -180,6 +192,8 @@ on the decisions in ADR 0002.
 - Point-in-time contract: `src/ats/domain/data.py`
 - Local as-of selector: `src/ats/data/asof.py`
 - Local artifact resolver: `src/ats/data/artifacts.py`
+- Historical universe contract: `src/ats/domain/universe.py`
+- Universe artifact schema: `schemas/data/universe-membership.v1.schema.json`
 - Artifact integrity and selection tests: `tests/unit/data/test_artifacts.py`
 - Selection and revision tests: `tests/unit/domain/test_data.py`
 - Data snapshot schema: `schemas/data/snapshot.v1.schema.json`
@@ -203,7 +217,7 @@ on the decisions in ADR 0002.
 - Operator policies: `config/source-allowlist.yaml`, `config/risk-policy.yaml`,
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
-    all four schema generator checks (eight schemas), and `uv run pytest -q`
-    (304 passed, 2 skipped for Windows symlink creation privileges)
+    all four schema generator checks (nine schemas), and `uv run pytest -q`
+    (330 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)
