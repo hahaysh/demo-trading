@@ -1,0 +1,292 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AssetClass": {
+      "enum": [
+        "EQUITY",
+        "ETF"
+      ],
+      "title": "AssetClass",
+      "type": "string"
+    },
+    "DatasetSnapshotRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "observed_through",
+        "digest"
+      ],
+      "title": "DatasetSnapshotRef",
+      "type": "object"
+    },
+    "OrderSide": {
+      "enum": [
+        "BUY",
+        "SELL"
+      ],
+      "title": "OrderSide",
+      "type": "string"
+    },
+    "OrderType": {
+      "enum": [
+        "MARKET",
+        "LIMIT"
+      ],
+      "title": "OrderType",
+      "type": "string"
+    },
+    "PolicyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "digest"
+      ],
+      "title": "PolicyRef",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:order-intent:v1",
+  "additionalProperties": false,
+  "properties": {
+    "account_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Account Id",
+      "type": "string"
+    },
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "asset_class": {
+      "$ref": "#/$defs/AssetClass"
+    },
+    "broker_environment": {
+      "const": "KIS_PAPER",
+      "default": "KIS_PAPER",
+      "title": "Broker Environment",
+      "type": "string"
+    },
+    "champion_selection": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "client_order_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Client Order Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "currency": {
+      "const": "KRW",
+      "default": "KRW",
+      "title": "Currency",
+      "type": "string"
+    },
+    "dataset_snapshot": {
+      "$ref": "#/$defs/DatasetSnapshotRef"
+    },
+    "execution_phase": {
+      "const": "NEXT_SESSION_OPEN",
+      "default": "NEXT_SESSION_OPEN",
+      "title": "Execution Phase",
+      "type": "string"
+    },
+    "execution_session": {
+      "format": "date",
+      "title": "Execution Session",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "funding": {
+      "const": "CASH",
+      "default": "CASH",
+      "title": "Funding",
+      "type": "string"
+    },
+    "instrument_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Instrument Id",
+      "type": "string"
+    },
+    "intent_id": {
+      "format": "uuid",
+      "title": "Intent Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "OrderIntent",
+      "default": "OrderIntent",
+      "title": "Kind",
+      "type": "string"
+    },
+    "limit_price": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Limit Price"
+    },
+    "market": {
+      "const": "KRX",
+      "default": "KRX",
+      "title": "Market",
+      "type": "string"
+    },
+    "order_type": {
+      "$ref": "#/$defs/OrderType"
+    },
+    "position_scope": {
+      "const": "LONG_ONLY",
+      "default": "LONG_ONLY",
+      "title": "Position Scope",
+      "type": "string"
+    },
+    "quantity": {
+      "exclusiveMinimum": 0,
+      "title": "Quantity",
+      "type": "integer"
+    },
+    "risk_policy": {
+      "$ref": "#/$defs/PolicyRef"
+    },
+    "side": {
+      "$ref": "#/$defs/OrderSide"
+    },
+    "signal": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "signal_session": {
+      "format": "date",
+      "title": "Signal Session",
+      "type": "string"
+    },
+    "strategy_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Strategy Digest",
+      "type": "string"
+    },
+    "strategy_version_id": {
+      "format": "uuid",
+      "title": "Strategy Version Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "intent_id",
+    "client_order_id",
+    "account_id",
+    "strategy_version_id",
+    "strategy_digest",
+    "champion_selection",
+    "dataset_snapshot",
+    "signal",
+    "risk_policy",
+    "instrument_id",
+    "asset_class",
+    "side",
+    "order_type",
+    "quantity",
+    "signal_session",
+    "execution_session",
+    "created_at",
+    "expires_at"
+  ],
+  "title": "OrderIntent",
+  "type": "object"
+}

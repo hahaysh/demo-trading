@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 import pytest
@@ -12,8 +13,18 @@ from ats.domain.governance import (
     evidence_digest,
 )
 from ats.domain.policy import PromotionPolicy
-from ats.domain.research import EvaluationResult, ExperimentRun
+from ats.domain.research import EvaluationEngine, EvaluationResult, ExperimentRun
 from ats.domain.strategy import ArtifactRef, StrategySpec
+from ats.ports import (
+    EvaluationOutput,
+    EvaluationRequest,
+    LeanCertificationPort,
+    QlibResearchPort,
+    SignalOutput,
+    SignalRequest,
+    run_evaluation,
+    run_signal_evaluation,
+)
 
 FREEZE = datetime(2026, 9, 29, tzinfo=UTC)
 START = FREEZE + timedelta(days=1)
@@ -112,6 +123,290 @@ def _result_payload(run: ExperimentRun) -> dict[str, object]:
         "artifacts": (ARTIFACT,),
         "data_integrity_violations": 0,
     }
+
+
+def _evaluation_request(
+    engine: EvaluationEngine = EvaluationEngine.QLIB,
+) -> EvaluationRequest:
+    return EvaluationRequest(
+        experiment_id=UUID(int=3),
+        strategy=_strategy(),
+        snapshot=_snapshot(),
+        engine=engine,
+        engine_artifact=ARTIFACT,
+        dependency_lock_digest=DIGEST,
+        random_seed=42,
+        protocol=ARTIFACT,
+        period_start=FREEZE - timedelta(days=365),
+        period_end=FREEZE,
+        requested_at=START,
+    )
+
+
+class _EvaluationDouble:
+    def __init__(
+        self,
+        run_changes: dict[str, object] | None = None,
+        result_changes: dict[str, object] | None = None,
+    ) -> None:
+        self.calls = 0
+        self.run_changes = run_changes or {}
+        self.result_changes = result_changes or {}
+
+    @property
+    def engine(self) -> Literal[EvaluationEngine.QLIB]:
+        return EvaluationEngine.QLIB
+
+    def evaluate(self, request: EvaluationRequest) -> EvaluationOutput:
+        self.calls += 1
+        run = ExperimentRun.model_validate(
+            {**_run_payload(), "engine": request.engine, **self.run_changes}
+        )
+        result = EvaluationResult.model_validate(
+            {**_result_payload(run), **self.result_changes}
+        )
+        return EvaluationOutput(run=run, result=result)
+
+
+class _LeanDouble:
+    @property
+    def engine(self) -> Literal[EvaluationEngine.LEAN]:
+        return EvaluationEngine.LEAN
+
+    def evaluate(self, request: EvaluationRequest) -> EvaluationOutput:
+        run = ExperimentRun.model_validate({**_run_payload(), "engine": request.engine})
+        return EvaluationOutput(
+            run=run, result=EvaluationResult.model_validate(_result_payload(run))
+        )
+
+
+def test_typed_engine_ports_return_deterministic_bound_results() -> None:
+    qlib: QlibResearchPort = _EvaluationDouble()
+    lean: LeanCertificationPort = _LeanDouble()
+    for adapter in (qlib, lean):
+        request = _evaluation_request(adapter.engine)
+        first = run_evaluation(adapter, request)
+        assert first == run_evaluation(adapter, request)
+        assert first.result is not None
+        assert first.run.engine is adapter.engine
+
+
+def test_invalid_inputs_and_wrong_engine_are_rejected_before_dispatch() -> None:
+    adapter = _EvaluationDouble()
+    request = _evaluation_request()
+    wrong_snapshot = request.snapshot.model_copy(
+        update={"snapshot_id": "wrong-snapshot"}
+    )
+    with pytest.raises(ValueError, match="strategy snapshot"):
+        run_evaluation(adapter, request.model_copy(update={"snapshot": wrong_snapshot}))
+    with pytest.raises(ValueError, match="requested engine"):
+        run_evaluation(adapter, _evaluation_request(EvaluationEngine.LEAN))
+    with pytest.raises(ValueError):
+        run_evaluation(adapter, request.model_copy(update={"random_seed": True}))
+    assert adapter.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("experiment_id", UUID(int=99)),
+        ("engine", "LEAN"),
+        (
+            "engine_artifact",
+            ArtifactRef(artifact_id="different-engine", version="1.0.0", digest=DIGEST),
+        ),
+        ("random_seed", 43),
+        ("dependency_lock_digest", OTHER_DIGEST),
+        ("strategy_digest", OTHER_DIGEST),
+        ("hypothesis", "Different experiment hypothesis."),
+        ("started_at", START - timedelta(seconds=1)),
+    ],
+)
+def test_adapter_cannot_substitute_run_metadata(field: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        run_evaluation(
+            _EvaluationDouble(run_changes={field: value}), _evaluation_request()
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (
+            "protocol",
+            ArtifactRef(
+                artifact_id="different-protocol", version="1.0.0", digest=DIGEST
+            ),
+        ),
+        ("period_start", FREEZE - timedelta(days=30)),
+        ("period_end", FREEZE - timedelta(days=1)),
+        ("experiment_digest", OTHER_DIGEST),
+    ],
+)
+def test_adapter_cannot_substitute_evaluation_metadata(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ValueError):
+        run_evaluation(
+            _EvaluationDouble(result_changes={field: value}), _evaluation_request()
+        )
+
+
+def test_failed_runs_have_no_results_and_adapter_exceptions_propagate() -> None:
+    class FailedAdapter(_EvaluationDouble):
+        def evaluate(self, request: EvaluationRequest) -> EvaluationOutput:
+            run = ExperimentRun.model_validate(
+                {
+                    **_run_payload(),
+                    "engine": request.engine,
+                    "status": "FAILED",
+                    "failure_reason": "Synthetic timeout.",
+                    "artifacts": (),
+                }
+            )
+            return EvaluationOutput(run=run)
+
+    class RaisingAdapter(_EvaluationDouble):
+        def evaluate(self, request: EvaluationRequest) -> EvaluationOutput:
+            raise TimeoutError("Synthetic engine timeout")
+
+    request = _evaluation_request()
+    failed = run_evaluation(FailedAdapter(), request)
+    assert failed.result is None
+    with pytest.raises(TimeoutError):
+        run_evaluation(RaisingAdapter(), request)
+    success = run_evaluation(_EvaluationDouble(), request)
+    with pytest.raises(ValidationError, match="requires a result"):
+        EvaluationOutput(run=success.run)
+    with pytest.raises(ValidationError, match="cannot carry a result"):
+        EvaluationOutput(run=failed.run, result=success.result)
+
+
+class _SignalDouble:
+    def __init__(self, changes: dict[str, object] | None = None) -> None:
+        self.calls = 0
+        self.changes = changes or {}
+
+    def evaluate(self, request: SignalRequest) -> SignalOutput:
+        self.calls += 1
+        return SignalOutput.model_validate(
+            {
+                "request_id": request.request_id,
+                "strategy_version_id": request.strategy.version.version_id,
+                "strategy_digest": request.strategy.content_digest(),
+                "dataset_snapshot": request.strategy.dataset_snapshot,
+                "evaluator": request.strategy.signal.implementation,
+                "generated_at": request.requested_at,
+                "signal": ARTIFACT,
+                **self.changes,
+            }
+        )
+
+
+def _signal_request() -> SignalRequest:
+    return SignalRequest(
+        request_id=UUID(int=50),
+        strategy=_strategy(),
+        snapshot=_snapshot(),
+        requested_at=START,
+    )
+
+
+def test_signal_port_is_deterministic_and_rejects_invalid_input_before_dispatch() -> (
+    None
+):
+    adapter = _SignalDouble()
+    request = _signal_request()
+    first = run_signal_evaluation(adapter, request)
+    assert first == run_signal_evaluation(adapter, request)
+    assert first.signal == ARTIFACT
+    assert adapter.calls == 2
+    invalid = request.model_copy(update={"requested_at": FREEZE})
+    with pytest.raises(ValueError, match="input creation"):
+        run_signal_evaluation(adapter, invalid)
+    assert adapter.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("request_id", UUID(int=99)),
+        ("strategy_version_id", UUID(int=99)),
+        ("strategy_digest", OTHER_DIGEST),
+        ("generated_at", START - timedelta(seconds=1)),
+        (
+            "evaluator",
+            ArtifactRef(
+                artifact_id="different-evaluator", version="1.0.0", digest=DIGEST
+            ),
+        ),
+        ("quantity", 100),
+    ],
+)
+def test_signal_port_rejects_unbound_or_order_shaped_output(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ValueError):
+        run_signal_evaluation(_SignalDouble({field: value}), _signal_request())
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("period_start", FREEZE),
+        ("period_end", FREEZE + timedelta(seconds=1)),
+        ("requested_at", FREEZE),
+    ],
+)
+def test_request_time_errors_prevent_engine_dispatch(field: str, value: object) -> None:
+    adapter = _EvaluationDouble()
+    invalid = _evaluation_request().model_copy(update={field: value})
+    with pytest.raises(ValueError):
+        run_evaluation(adapter, invalid)
+    assert adapter.calls == 0
+
+
+def test_universe_reference_must_match_for_both_ports() -> None:
+    strategy = _strategy()
+    universe = strategy.universe.model_copy(
+        update={"membership_snapshot_id": "other-universe"}
+    )
+    strategy = strategy.model_copy(update={"universe": universe})
+    engine = _EvaluationDouble()
+    signal = _SignalDouble()
+    with pytest.raises(ValueError, match="strategy snapshot"):
+        run_evaluation(
+            engine, _evaluation_request().model_copy(update={"strategy": strategy})
+        )
+    with pytest.raises(ValueError, match="strategy snapshot"):
+        run_signal_evaluation(
+            signal, _signal_request().model_copy(update={"strategy": strategy})
+        )
+    assert engine.calls == signal.calls == 0
+
+
+def test_boundary_revalidates_adapter_outputs_created_without_validation() -> None:
+    class InvalidOutputAdapter(_EvaluationDouble):
+        def evaluate(self, request: EvaluationRequest) -> EvaluationOutput:
+            output = super().evaluate(request)
+            assert output.result is not None
+            metrics = output.result.metrics.model_copy(
+                update={"net_oos_sharpe": float("nan")}
+            )
+            result = output.result.model_copy(update={"metrics": metrics})
+            return output.model_copy(update={"result": result})
+
+    with pytest.raises(ValidationError):
+        run_evaluation(InvalidOutputAdapter(), _evaluation_request())
+
+
+def test_signal_output_cannot_substitute_snapshot() -> None:
+    request = _signal_request()
+    reference = request.strategy.dataset_snapshot.model_copy(
+        update={"digest": OTHER_DIGEST}
+    )
+    with pytest.raises(ValueError, match="signal output"):
+        run_signal_evaluation(_SignalDouble({"dataset_snapshot": reference}), request)
 
 
 def test_round_trip_immutability_and_resolved_lineage() -> None:

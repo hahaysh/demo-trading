@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from ats.domain.data import DataSnapshot, MarketEvent
+from ats.domain.execution import OrderIntent, RiskDecision
 from ats.domain.governance import PromotionDecision
 from ats.domain.research import EvaluationResult, ExperimentRun
 from ats.domain.strategy import StrategySpec
@@ -12,6 +13,23 @@ from ats.domain.strategy import StrategySpec
 DATA_SNAPSHOT_SCHEMA_ID = "urn:ats:schema:data-snapshot:v1"
 MARKET_EVENT_SCHEMA_ID = "urn:ats:schema:market-event:v1"
 STRATEGY_SCHEMA_ID = "urn:ats:schema:strategy:v1"
+
+
+def execution_json_schemas() -> dict[str, dict[str, object]]:
+    contracts = {"order-intent": OrderIntent, "risk-decision": RiskDecision}
+    schemas: dict[str, dict[str, object]] = {}
+    for name, model in contracts.items():
+        schema: dict[str, object] = model.model_json_schema(mode="validation")
+        schema["$id"] = f"urn:ats:schema:{name}:v1"
+        schemas[f"{name}.v1.schema.json"] = schema
+    return schemas
+
+
+def render_execution_json_schemas() -> dict[str, str]:
+    return {
+        name: json.dumps(schema, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+        for name, schema in execution_json_schemas().items()
+    }
 
 
 def research_json_schemas() -> dict[str, dict[str, object]]:

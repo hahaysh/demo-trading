@@ -8,6 +8,16 @@ from ats.domain.data import (
     PointInTimeRecord,
     UniverseMembershipManifest,
 )
+from ats.domain.execution import (
+    OrderIntent,
+    OrderSide,
+    OrderType,
+    RiskCheck,
+    RiskCheckEvidence,
+    RiskCheckStatus,
+    RiskDecision,
+    RiskOutcome,
+)
 from ats.domain.governance import (
     EvaluationRef,
     GateAttestation,
@@ -80,6 +90,9 @@ __all__ = [
     "MarketEvent",
     "MarketEventType",
     "MutationPolicy",
+    "OrderIntent",
+    "OrderSide",
+    "OrderType",
     "ParameterBounds",
     "PolicyMetadata",
     "PolicyRef",
@@ -94,6 +107,11 @@ __all__ = [
     "PromotionPolicy",
     "PromotionReview",
     "RiskLimits",
+    "RiskCheck",
+    "RiskCheckEvidence",
+    "RiskCheckStatus",
+    "RiskDecision",
+    "RiskOutcome",
     "RiskPolicy",
     "ScheduleSpec",
     "SignalParameter",

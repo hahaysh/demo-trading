@@ -1,8 +1,10 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from hypothesis import given, strategies
 from pydantic import ValidationError
 
+from ats.data import AsOfSelectionError, RevisionOrder, select_records_as_of
 from ats.domain.data import (
     CredibilityTier,
     DataSnapshot,
@@ -197,3 +199,170 @@ def test_event_is_not_an_order_contract() -> None:
     payload["order_quantity"] = 100
     with pytest.raises(ValidationError, match="Extra inputs"):
         MarketEvent.model_validate(payload)
+
+
+def _revision_order(
+    revisions: tuple[str, ...],
+    *,
+    observed_at: datetime = FREEZE_TIME,
+) -> RevisionOrder:
+    return RevisionOrder(
+        source_id="dart-disclosures",
+        source_item_id="dart-001",
+        revisions=revisions,
+        observed_at=observed_at,
+        evidence=ArtifactRef(
+            artifact_id="revision-order", version="1.0.0", digest=_digest("d")
+        ),
+    )
+
+
+def test_asof_includes_boundary_but_excludes_late_observations() -> None:
+    early = _record(observed_at=FREEZE_TIME - timedelta(minutes=1))
+    late = _record(revision="rev-002")
+    snapshot = _snapshot(early, late)
+    cutoff = early.observed_at
+    assert select_records_as_of(snapshot, at=cutoff) == (early,)
+    assert select_records_as_of(snapshot, at=cutoff - timedelta(microseconds=1)) == ()
+    with pytest.raises(AsOfSelectionError, match="ambiguous"):
+        select_records_as_of(snapshot, at=FREEZE_TIME)
+    assert snapshot.records == (early, late)
+
+
+def test_late_arriving_old_revision_does_not_replace_newer_source_revision() -> None:
+    newer = _record(revision="rev-002", observed_at=FREEZE_TIME - timedelta(minutes=1))
+    older = _record(revision="rev-010")
+    order = _revision_order((older.revision, newer.revision))
+    snapshot = _snapshot(newer, older)
+    assert select_records_as_of(snapshot, at=FREEZE_TIME, revision_orders=(order,)) == (
+        newer,
+    )
+    with pytest.raises(AsOfSelectionError, match="ambiguous"):
+        select_records_as_of(snapshot, at=FREEZE_TIME)
+
+
+def test_future_revision_order_cannot_resolve_historical_ambiguity() -> None:
+    snapshot = _snapshot(_record(revision="rev-001"), _record(revision="rev-002"))
+    future = _revision_order(
+        ("rev-001", "rev-002"), observed_at=FREEZE_TIME + timedelta(seconds=1)
+    )
+    with pytest.raises(AsOfSelectionError, match="ambiguous"):
+        select_records_as_of(snapshot, at=FREEZE_TIME, revision_orders=(future,))
+
+
+@pytest.mark.parametrize(
+    "revisions", [("rev-001", "rev-003"), ("rev-001", "rev-002", "rev-003")]
+)
+def test_revision_order_rejects_missing_or_unlisted_history(
+    revisions: tuple[str, ...],
+) -> None:
+    snapshot = _snapshot(_record(), _record(revision="rev-002"))
+    with pytest.raises(AsOfSelectionError, match="incomplete or unlisted"):
+        select_records_as_of(
+            snapshot, at=FREEZE_TIME, revision_orders=(_revision_order(revisions),)
+        )
+
+
+def test_known_revision_order_does_not_fall_back_to_an_older_visible_record() -> None:
+    early = _record(observed_at=FREEZE_TIME - timedelta(minutes=1))
+    latest = _record(revision="rev-002")
+    order = _revision_order(("rev-001", "rev-002"), observed_at=early.observed_at)
+    with pytest.raises(AsOfSelectionError, match="incomplete"):
+        select_records_as_of(
+            _snapshot(early, latest), at=early.observed_at, revision_orders=(order,)
+        )
+    with pytest.raises(AsOfSelectionError, match="incomplete"):
+        select_records_as_of(_snapshot(), at=FREEZE_TIME, revision_orders=(order,))
+
+
+@pytest.mark.parametrize("reversed_order", [False, True])
+def test_multiple_visible_orders_are_rejected_even_if_identical(
+    reversed_order: bool,
+) -> None:
+    first = _revision_order(("rev-001", "rev-002"))
+    second = _revision_order(("rev-002", "rev-001")) if reversed_order else first
+    with pytest.raises(AsOfSelectionError, match="multiple revision orders"):
+        select_records_as_of(
+            _snapshot(_record(), _record(revision="rev-002")),
+            at=FREEZE_TIME,
+            revision_orders=(first, second),
+        )
+
+
+def test_order_rejects_duplicate_labels_and_is_immutable() -> None:
+    with pytest.raises(ValidationError, match="unique revisions"):
+        _revision_order(("rev-001", "rev-001"))
+    order = _revision_order(("rev-001", "rev-002"))
+    with pytest.raises(ValidationError):
+        order.__setattr__("revisions", ("rev-002", "rev-001"))
+
+
+def test_asof_preserves_future_effective_announcements_and_missing_timestamps() -> None:
+    announced = PointInTimeRecord.model_validate(
+        {
+            **_record().model_dump(),
+            "effective_at": FREEZE_TIME + timedelta(days=30),
+            "published_at": None,
+        }
+    )
+    selected = select_records_as_of(_snapshot(announced), at=FREEZE_TIME)
+    assert selected == (announced,)
+    assert selected[0].published_at is None
+    unknown = PointInTimeRecord.model_validate(
+        {**announced.model_dump(), "effective_at": None}
+    )
+    assert select_records_as_of(_snapshot(unknown), at=FREEZE_TIME) == (unknown,)
+
+
+@pytest.mark.parametrize(
+    "at", [datetime(2026, 9, 30), FREEZE_TIME + timedelta(microseconds=1)]
+)
+def test_asof_rejects_naive_time_and_extrapolation(at: datetime) -> None:
+    with pytest.raises(AsOfSelectionError):
+        select_records_as_of(_snapshot(_record()), at=at)
+
+
+def test_selection_is_timezone_equivalent_and_source_scoped() -> None:
+    first = _record()
+    other_source = PointInTimeRecord.model_validate(
+        {**first.model_dump(), "source_id": "krx-primary"}
+    )
+    snapshot = _snapshot(other_source, first)
+    local_time = FREEZE_TIME.astimezone(timezone(timedelta(hours=9)))
+    assert select_records_as_of(snapshot, at=local_time) == (first, other_source)
+    assert select_records_as_of(snapshot, at=FREEZE_TIME) == (first, other_source)
+
+
+@given(strategies.permutations(("dart-003", "dart-001", "dart-002")))
+def test_asof_output_is_independent_of_input_order(item_ids: list[str]) -> None:
+    snapshot = _snapshot(*(_record(source_item_id=item_id) for item_id in item_ids))
+    selected = select_records_as_of(snapshot, at=FREEZE_TIME)
+    assert tuple(record.source_item_id for record in selected) == (
+        "dart-001",
+        "dart-002",
+        "dart-003",
+    )
+
+
+@given(strategies.integers(min_value=1, max_value=59))
+def test_future_observation_does_not_change_earlier_selection(seconds: int) -> None:
+    early = _record(observed_at=FREEZE_TIME - timedelta(minutes=1))
+    late = _record(
+        revision="rev-002", observed_at=early.observed_at + timedelta(seconds=seconds)
+    )
+    baseline = select_records_as_of(_snapshot(early), at=early.observed_at)
+    assert (
+        select_records_as_of(_snapshot(early, late), at=early.observed_at) == baseline
+    )
+
+
+def test_asof_revalidates_unchecked_copies() -> None:
+    snapshot = _snapshot(_record())
+    duplicate = snapshot.model_copy(update={"records": (_record(), _record())})
+    with pytest.raises(ValidationError, match="unique source revisions"):
+        select_records_as_of(duplicate, at=FREEZE_TIME)
+    invalid_order = _revision_order(("rev-001", "rev-002")).model_copy(
+        update={"revisions": ("rev-001", "rev-001")}
+    )
+    with pytest.raises(ValidationError, match="unique revisions"):
+        select_records_as_of(snapshot, at=FREEZE_TIME, revision_orders=(invalid_order,))

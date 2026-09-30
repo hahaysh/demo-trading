@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "PolicyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "digest"
+      ],
+      "title": "PolicyRef",
+      "type": "object"
+    },
+    "RiskCheck": {
+      "enum": [
+        "CHAMPION",
+        "UNIVERSE",
+        "PRICE_FRESHNESS",
+        "SYMBOL_WEIGHT",
+        "GROSS_EXPOSURE",
+        "CASH_AVAILABLE",
+        "LONG_ONLY",
+        "DUPLICATE_ORDER",
+        "MARKET_SESSION",
+        "DAILY_LOSS",
+        "DRAWDOWN",
+        "KILL_SWITCH"
+      ],
+      "title": "RiskCheck",
+      "type": "string"
+    },
+    "RiskCheckEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/RiskCheck"
+        },
+        "report": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "status": {
+          "$ref": "#/$defs/RiskCheckStatus"
+        }
+      },
+      "required": [
+        "check",
+        "status",
+        "report"
+      ],
+      "title": "RiskCheckEvidence",
+      "type": "object"
+    },
+    "RiskCheckStatus": {
+      "enum": [
+        "PASSED",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "RiskCheckStatus",
+      "type": "string"
+    },
+    "RiskOutcome": {
+      "enum": [
+        "ALLOW",
+        "DENY"
+      ],
+      "title": "RiskOutcome",
+      "type": "string"
+    }
+  },
+  "$id": "urn:ats:schema:risk-decision:v1",
+  "additionalProperties": false,
+  "description": "An independent assessor's claimed result; identity is verified elsewhere.",
+  "properties": {
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "assessor": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RiskCheckEvidence"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "decision_id": {
+      "format": "uuid",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "intent_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Intent Digest",
+      "type": "string"
+    },
+    "intent_id": {
+      "format": "uuid",
+      "title": "Intent Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "RiskDecision",
+      "default": "RiskDecision",
+      "title": "Kind",
+      "type": "string"
+    },
+    "outcome": {
+      "$ref": "#/$defs/RiskOutcome",
+      "default": "DENY"
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyRef"
+    },
+    "reason": {
+      "maxLength": 2000,
+      "minLength": 3,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "intent_id",
+    "intent_digest",
+    "policy",
+    "assessor",
+    "reason",
+    "checked_at",
+    "expires_at"
+  ],
+  "title": "RiskDecision",
+  "type": "object"
+}

@@ -4,7 +4,8 @@ Last updated: 2026-09-30
 
 ## Active Milestone
 
-Phase 1 data and research contracts; Phase 0 approval gates remain open.
+Phase 1 primary contracts and local adapter boundaries implemented; real adapters
+and Phase 0 gates remain open. Phase 2 local as-of selection is implemented.
 
 ## Completed
 
@@ -40,14 +41,29 @@ Phase 1 data and research contracts; Phase 0 approval gates remain open.
     digest resolution. Approved receipts require an approved policy, comparable
     Qlib/LEAN evidence, and passing available numerical metrics.
 - Extended the existing research generator with the promotion decision schema.
-- Passed the complete local quality gate with 145 tests on 2026-09-30.
+- Implemented frozen paper-only `OrderIntent` and default-deny `RiskDecision`
+    contracts. Risk receipts bind the exact order and operator policy digests,
+    require complete passing check evidence for `ALLOW`, and validate expiry.
+- Added execution schema generation and missing/stale tests for both contracts.
+- Added typed Qlib research, LEAN certification, and signal-evaluator ports with
+    request/output validation wrappers. Tests use deterministic in-memory doubles,
+    including invalid input rejection before adapter invocation.
+- Recorded unresolved replay, revision, universe, runtime, and engine-comparison
+    semantics in proposed ADR 0002; no tolerances or new approvals were selected.
+- Implemented local as-of selection with inclusive observation cutoffs,
+    explicit time-bound revision ordering, deterministic output, and fail-closed
+    ambiguous/incomplete history handling. Original snapshots remain unchanged.
+- Recorded the tested local selection semantics and remaining source-specific
+    decisions in proposed ADR 0002.
+- Passed the complete local quality gate with 273 tests on 2026-09-30.
 - Passed focused validation for the point-in-time contract and schema: Ruff,
     Pyright, 6 unit tests, and 2 schema contract tests on 2026-09-30.
 
 ## In Progress
 
-- Remaining Phase 1 contracts: `OrderIntent` and `RiskDecision`.
-- Qlib, LEAN, and signal-evaluator adapter boundaries.
+- Actual engine and signal adapter implementations, input artifact resolution,
+    and point-in-time replay remain unimplemented. Local ports and receipts do
+    not constitute an executable trading system or independent certification.
 - Phase 0 ADRs for point-in-time and revision semantics, source/data rights,
     Azure service selection, and Qlib/LEAN comparison metrics and tolerances.
 
@@ -67,13 +83,39 @@ Phase 1 data and research contracts; Phase 0 approval gates remain open.
 
 ## Next Executable Step
 
-Implement paper-only `OrderIntent` and `RiskDecision` contracts. Bind every
-decision to the exact intent and independent risk-policy version; missing or
-inconsistent evidence must not authorize submission. Broker submission and the
-runtime risk service remain separate later work.
+Implement a local content-addressed artifact resolver that verifies referenced
+raw payload and revision-order evidence digests against actual bytes. Use only
+synthetic/recorded fixtures. Source-specific revision completeness, universe
+provenance, and engine replay remain gated on the decisions in ADR 0002.
 
 ## Known Boundaries
 
+- As-of selection is local and not wired into an actual engine. `RevisionOrder`
+    evidence and observation timestamps are caller-supplied claims; artifact
+    bytes and source-specific completeness are not verified. Errors are raised
+    without partial results; persistent quarantine is not implemented.
+- The selector returns known records, not a new universe-validated snapshot.
+    It does not filter by economic effective time or check stale data/source
+    permissions. Callers must retain cutoff and revision-order evidence as well
+    as the snapshot identity to reproduce selection.
+- Adapter wrappers validate contracts and identity before/after invocation, not
+    actual engine execution, metric accuracy, or adapter side effects. Their
+    request/output models are in-process interfaces, not new persisted schemas.
+- Tests use synthetic doubles only; Qlib and LEAN are not installed or invoked.
+    A whole-snapshot cutoff does not prevent per-bar look-ahead inside an engine.
+    Engine integration of as-of selection and a numerical comparison policy
+    remain open.
+- Order/risk objects are receipts, not broker capabilities. Call
+    `decision.validate_for_intent(intent, policy, at=trusted_now)` with the current
+    operator policy; this checks binding and a half-open validity interval, not
+    authenticated assessor identity or the truth of the check reports.
+- Runtime checks of positions, reserved cash, live quotes, portfolio limits,
+    champion selection, historical universe, holidays, tick sizes, and kill switch
+    are not implemented. `SELL` means reducing an existing long position; only
+    an independent service using actual holdings can rule out a short sale.
+- Session dates only enforce ordering, not the next KRX trading session or its
+    opening time. Client order IDs are metadata; atomic replay prevention,
+    resource reservations, and revalidation before submission remain required.
 - Promotion decisions are records, not activation capabilities. Consumers must
     resolve run inputs and call `decision.validate_evidence(policy, evaluations,
     runs)`. No lifecycle, champion pointer, policy file, or broker state is changed.
@@ -111,9 +153,14 @@ runtime risk service remain separate later work.
 
 - Master plan: `docs/plans/ats-master-plan.md`
 - Core governance ADR: `docs/adr/0001-governed-recursive-improvement.md`
+- Proposed adapter/replay ADR: `docs/adr/0002-adapter-boundaries-and-replay-semantics.md`
+- Adapter boundaries: `src/ats/ports.py`
+- Adapter regression tests: `tests/unit/domain/test_research.py`
 - Strategy contract: `src/ats/domain/strategy.py`
 - Strategy schema: `schemas/strategy/v1.schema.json`
 - Point-in-time contract: `src/ats/domain/data.py`
+- Local as-of selector: `src/ats/data/asof.py`
+- Selection and revision tests: `tests/unit/domain/test_data.py`
 - Data snapshot schema: `schemas/data/snapshot.v1.schema.json`
 - Market event schema: `schemas/data/market-event.v1.schema.json`
 - Event and provenance tests: `tests/unit/domain/test_data.py`
@@ -127,10 +174,15 @@ runtime risk service remain separate later work.
 - Promotion schema: `schemas/research/promotion-decision.v1.schema.json`
 - Promotion tests reuse `tests/unit/domain/test_research.py` and
     `tests/contract/test_research_schema.py`.
+- Execution contracts: `src/ats/domain/execution.py`
+- Execution tests: `tests/unit/domain/test_execution.py` and
+    `tests/contract/test_execution_schema.py`
+- Execution schemas: `schemas/execution/order-intent.v1.schema.json` and
+    `schemas/execution/risk-decision.v1.schema.json`
 - Operator policies: `config/source-allowlist.yaml`, `config/risk-policy.yaml`,
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
-    all three schema generator checks (six schemas), and `uv run pytest -q`
-    (145 passed)
+    all four schema generator checks (eight schemas), and `uv run pytest -q`
+    (273 passed)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)

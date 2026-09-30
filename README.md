@@ -88,3 +88,68 @@ engine tolerances before activation. The current contract implements none of
 those runtime authorizations. Operator policies remain unchanged and `DRAFT`.
 
 The existing research schema generator also covers `PromotionDecision`.
+
+## Paper Execution Contracts
+
+`OrderIntent` records a cash-funded, long-only KRX order for `KIS_PAPER`, with
+strategy, champion-selection, snapshot, signal, account, and risk-policy
+references. Quantities are positive integers. Limit prices use finite positive
+`Decimal` values; market orders omit the limit price. Use decimal strings in
+JSON to preserve price precision. No live environment or intraday phase is accepted.
+
+`RiskDecision` defaults to `DENY`. An `ALLOW` receipt requires all declared
+checks to have passing evidence. Before use, call
+`decision.validate_for_intent(intent, policy, at=trusted_now)` using the current
+operator policy and a trusted, timezone-aware clock. The decision must match the
+entire intent digest and approved policy, fit inside the intent lifetime, and
+satisfy `checked_at <= trusted_now < expires_at`. A modified quantity, price,
+account, symbol, or other intent field invalidates the binding.
+
+These records do not submit orders or prove real risk checks occurred. An
+independent service must verify assessor authority, current positions and cash,
+price freshness, exposure, losses, champion/universe eligibility, market session,
+and kill switch. `SELL` must only reduce an existing long position. The contract
+does not verify holdings, the trading calendar, or tick sizes. Atomic idempotency,
+reservations, and revalidation at submission are still required; a digest cannot
+prevent replay. All repository operator policies remain `DRAFT`.
+
+```powershell
+uv run python scripts/generate_execution_schemas.py
+uv run python scripts/generate_execution_schemas.py --check
+```
+
+## Adapter Boundaries
+
+`ats.ports` provides `QlibResearchPort`, `LeanCertificationPort`, and
+`SignalEvaluatorPort`. Use `run_evaluation` or `run_signal_evaluation` instead
+of calling an adapter directly to apply pre-dispatch input validation and
+post-dispatch result binding. Evaluation requests pin experiment, strategy,
+snapshot, engine, seed, dependency lock, protocol, and period. Signal outputs
+carry artifact references only, not orders. Adapter errors propagate; no fallback
+result is silently substituted.
+
+These in-process interfaces currently have test doubles only. No real engine,
+broker, signal implementation, artifact resolver, or sandbox is supplied.
+Per-bar point-in-time replay and engine tolerances remain unresolved; see
+`docs/adr/0002-adapter-boundaries-and-replay-semantics.md` (Proposed).
+
+## As-Of Selection
+
+`ats.data.select_records_as_of(snapshot, at=cutoff, revision_orders=orders)`
+returns one known revision per source/item in deterministic source/item order.
+The aware cutoff is inclusive and cannot exceed the snapshot freeze timestamp.
+Future observations are excluded, while known announcements with future
+effective dates are preserved.
+
+Multiple visible revisions require an explicit `RevisionOrder` (oldest to
+newest), including an evidence artifact and the time that ordering was observed.
+Ordering learned after the cutoff is ignored. Labels and arrival order are never
+used as revision precedence. Ambiguous, incomplete, or conflicting histories
+raise `AsOfSelectionError` without partial results or fallback to older records.
+Original snapshots and records are not modified.
+
+This local selector is not yet integrated with an engine or a source connector.
+It does not verify evidence bytes, source permissions, freshness, universe
+membership, or economic applicability. Keep the snapshot, cutoff, and ordering
+evidence together for reproducible selection. See ADR 0002 for the remaining
+source-specific decisions.
