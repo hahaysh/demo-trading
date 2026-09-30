@@ -129,7 +129,8 @@ carry artifact references only, not orders. Adapter errors propagate; no fallbac
 result is silently substituted.
 
 These in-process interfaces currently have test doubles only. No real engine,
-broker, signal implementation, artifact resolver, or sandbox is supplied.
+broker, signal implementation, or sandbox is supplied. A separate local artifact
+resolver is available below; engine-specific materialization is not implemented.
 Per-bar point-in-time replay and engine tolerances remain unresolved; see
 `docs/adr/0002-adapter-boundaries-and-replay-semantics.md` (Proposed).
 
@@ -153,3 +154,24 @@ It does not verify evidence bytes, source permissions, freshness, universe
 membership, or economic applicability. Keep the snapshot, cutoff, and ordering
 evidence together for reproducible selection. See ADR 0002 for the remaining
 source-specific decisions.
+
+## Local Artifact Resolution
+
+`ats.data.LocalArtifactResolver(root, max_bytes=16 * 1024 * 1024)` reads a
+prepopulated, trusted directory using `root/sha256/<64 lowercase hex digits>`.
+It returns exact bytes only after SHA-256 verification and rejects missing,
+corrupt, oversized, non-regular, or statically linked artifacts. It has no writer,
+network fetch, repair, installation, or read-cache behavior.
+
+Use `read_digest`, `read_artifact`, `read_raw_payload`, or
+`read_revision_evidence` for explicit reads. Use
+`resolver.select_verified_records_as_of(snapshot, at=cutoff, revision_orders=orders)`
+to verify all visible raw revisions and applicable ordering evidence before
+receiving selected records. Future-observed artifact files are not read. The
+original `select_records_as_of` remains a pure, filesystem-free selector.
+
+The store must be protected from concurrent untrusted writes; static path checks
+are not a race-proof sandbox. A successful read proves byte integrity, not source
+rights, timestamp truth, normalized-content correctness, or the meaning of a
+revision report. Consumers must use verified bytes or reverify when reading again.
+Actual symlink integration tests may be skipped when OS privileges are unavailable.

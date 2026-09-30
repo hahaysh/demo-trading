@@ -5,7 +5,8 @@ Last updated: 2026-09-30
 ## Active Milestone
 
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
-and Phase 0 gates remain open. Phase 2 local as-of selection is implemented.
+and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
+verification are implemented.
 
 ## Completed
 
@@ -55,13 +56,20 @@ and Phase 0 gates remain open. Phase 2 local as-of selection is implemented.
     ambiguous/incomplete history handling. Original snapshots remain unchanged.
 - Recorded the tested local selection semantics and remaining source-specific
     decisions in proposed ADR 0002.
-- Passed the complete local quality gate with 273 tests on 2026-09-30.
+- Implemented a read-only local SHA-256 artifact resolver with bounded reads,
+    exact-byte verification, static link/reparse rejection, and no stale fallback.
+    Verified as-of selection checks all visible raw revisions and ordering
+    evidence while leaving future artifact files unread.
+- Latest local checks on 2026-09-30: 304 tests passed; 2 actual symlink tests
+    skipped because Windows link creation requires privileges unavailable here.
+    The mocked reparse-attribute test, lint, format, types, schemas, and lock
+    checks passed.
 - Passed focused validation for the point-in-time contract and schema: Ruff,
     Pyright, 6 unit tests, and 2 schema contract tests on 2026-09-30.
 
 ## In Progress
 
-- Actual engine and signal adapter implementations, input artifact resolution,
+- Actual engine and signal adapters, engine-specific input materialization,
     and point-in-time replay remain unimplemented. Local ports and receipts do
     not constitute an executable trading system or independent certification.
 - Phase 0 ADRs for point-in-time and revision semantics, source/data rights,
@@ -83,17 +91,27 @@ and Phase 0 gates remain open. Phase 2 local as-of selection is implemented.
 
 ## Next Executable Step
 
-Implement a local content-addressed artifact resolver that verifies referenced
-raw payload and revision-order evidence digests against actual bytes. Use only
-synthetic/recorded fixtures. Source-specific revision completeness, universe
-provenance, and engine replay remain gated on the decisions in ADR 0002.
+Define and verify a historical-universe membership artifact with actual members,
+observation times, and effective intervals using local fixtures. Resolve its
+bytes through the artifact resolver, and reject membership not known at the
+decision cutoff. Source-specific completeness and engine replay remain gated
+on the decisions in ADR 0002.
 
 ## Known Boundaries
 
 - As-of selection is local and not wired into an actual engine. `RevisionOrder`
-    evidence and observation timestamps are caller-supplied claims; artifact
-    bytes and source-specific completeness are not verified. Errors are raised
+    evidence and observation timestamps are caller-supplied claims. The resolver
+    verifies evidence bytes, not their interpretation or source-specific
+    completeness. Errors are raised
     without partial results; persistent quarantine is not implemented.
+- Use `LocalArtifactResolver.select_verified_records_as_of` when byte integrity
+    is required; the original pure selector remains filesystem-free. The resolver
+    verifies raw payload digests, not normalized `content_hash` values, universe
+    membership contents, or semantic agreement of an order with its report.
+- The artifact root must be trusted and protected from concurrent untrusted
+    writes. Static link checks are not a race-proof filesystem sandbox. The
+    resolver has no write/install/fetch interface, and every read rechecks bytes;
+    consumers must not later read the path without verification.
 - The selector returns known records, not a new universe-validated snapshot.
     It does not filter by economic effective time or check stale data/source
     permissions. Callers must retain cutoff and revision-order evidence as well
@@ -142,8 +160,9 @@ provenance, and engine replay remain gated on the decisions in ADR 0002.
 - Rights labels are metadata, not proof of legal approval; runtime source-policy
     enforcement, authenticated approvals, and append-only persistence remain open.
 - Universe membership currently contains an external manifest reference and
-    supplied digest, not its members or a computed manifest digest. Raw payload
-    bytes and supplied digests are not verified by these contracts.
+    supplied digest, not its members or a computed manifest digest. Domain
+    contracts alone do not verify bytes; raw payload verification now requires
+    the explicit local resolver path.
 - Snapshot digests identify serialized snapshots, including record ordering and
     creation metadata. Order-independent content-set hashing is not implemented.
 - Event confidence is not a trade decision. Rumor-influence caps and independent
@@ -160,6 +179,8 @@ provenance, and engine replay remain gated on the decisions in ADR 0002.
 - Strategy schema: `schemas/strategy/v1.schema.json`
 - Point-in-time contract: `src/ats/domain/data.py`
 - Local as-of selector: `src/ats/data/asof.py`
+- Local artifact resolver: `src/ats/data/artifacts.py`
+- Artifact integrity and selection tests: `tests/unit/data/test_artifacts.py`
 - Selection and revision tests: `tests/unit/domain/test_data.py`
 - Data snapshot schema: `schemas/data/snapshot.v1.schema.json`
 - Market event schema: `schemas/data/market-event.v1.schema.json`
@@ -183,6 +204,6 @@ provenance, and engine replay remain gated on the decisions in ADR 0002.
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
     all four schema generator checks (eight schemas), and `uv run pytest -q`
-    (273 passed)
+    (304 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)

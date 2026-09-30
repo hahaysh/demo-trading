@@ -93,10 +93,32 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Verify content-addressed raw payloads and revision-order evidence against actual
-local bytes, using synthetic/recorded fixtures. Review source-specific ordering
-and completeness rules before real connectors or engine replay. Source rights,
-independent risk, human promotion, and cloud approval gates remain intact.
+Verify historical-universe membership artifacts with actual members, observation
+times, and effective intervals, using the local resolver and synthetic fixtures.
+Review source-specific ordering and completeness before real connectors or engine
+replay. Source rights, independent risk, human promotion, and cloud gates remain.
+
+## Implemented Local Artifact Verification
+
+`LocalArtifactResolver` reads `root/sha256/<64 lowercase hex characters>` under
+a trusted configured root. It accepts digest references, not caller-supplied
+artifact paths or URLs. Reads are bounded (16 MiB by default), must be regular
+files, and reject static symlinks/reparse points beneath the root. The resolver
+returns immutable bytes only after exact SHA-256 verification; it never fetches,
+repairs, overwrites, decodes, or installs artifact content and has no read cache.
+
+`select_verified_records_as_of` first resolves selection, then verifies raw bytes
+for every visible revision (including superseded ones) and all applicable
+revision-order evidence. Missing or mismatched visible bytes fail without partial
+results. Later observations and later ordering evidence cause no filesystem reads
+at earlier cutoffs. The original pure selector remains available without I/O.
+
+Integrity is not authenticity: the code does not prove that a report supports a
+declared order, that timestamps are truthful, or that collection was licensed.
+Normalized content hashes and universe semantics are not checked by raw-byte
+verification. A trusted read-only directory is required; these portable checks
+do not defend against hostile concurrent path replacement or provide a sandbox.
+Use returned verified bytes, or reverify on every subsequent read.
 
 ## Acceptance Evidence
 
@@ -107,5 +129,9 @@ independent risk, human promotion, and cloud approval gates remain intact.
    revisions, unavailable ordering evidence, incomplete/conflicting histories,
    UTC-equivalent cutoffs, and property tests for input-order independence and
    exclusion of future observations.
+- `tests/unit/data/test_artifacts.py`: exact binary reads, digest/path rejection,
+  missing/corrupt artifacts, bounded reads, visible-history verification, and
+  future-artifact exclusion. Actual symlink tests require OS privileges and were
+  skipped on this Windows host; simulated reparse rejection was tested.
 - Real Qlib/LEAN performance, data leakage resistance during replay, and numerical
   agreement require separate integration evidence and are not yet validated.
