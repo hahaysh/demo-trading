@@ -7,6 +7,8 @@ Last updated: 2026-09-30
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
 and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
 verification are implemented, including historical universe artifact resolution.
+Verified records and effective membership can now be composed into a local
+per-decision input bundle.
 
 ## Completed
 
@@ -65,7 +67,11 @@ verification are implemented, including historical universe artifact resolution.
     overlapping intervals. The resolver verifies artifact bytes, manifest ID,
     and horizon before returning effective, known members for a snapshot cutoff.
 - Added the universe membership artifact to the existing data schema generator.
-- Latest local checks on 2026-09-30: 330 tests passed; 2 actual symlink tests
+- Implemented `build_decision_inputs` and immutable `DecisionInputBundle` with
+    snapshot/cutoff/universe/revision provenance, scope filtering, and explicit
+    exclusion reasons. Unscoped records are excluded unless explicitly included.
+    Visible raw history is verified before filtering; failures return no bundle.
+- Latest local checks on 2026-09-30: 352 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -96,13 +102,27 @@ verification are implemented, including historical universe artifact resolution.
 
 ## Next Executable Step
 
-Combine verified record selection and universe membership selection into one
-local per-decision input bundle with explicit snapshot, cutoff, and revision-order
-provenance. Test that out-of-universe instrument records cannot enter that bundle
-and define handling of market-wide records. Keep actual engines and sources gated.
+Apply the operator-owned source allowlist to local input bundle construction.
+Bind the exact policy version/digest and test that draft, inactive, unlisted, or
+unapproved sources cannot supply usable inputs. Use synthetic fixtures only;
+do not approve repository policies or enable external collection.
 
 ## Known Boundaries
 
+- `build_decision_inputs` combines verified record and universe selection, with
+    exclusions recorded by source/item/revision and reason. Unscoped inclusion
+    is an explicit caller choice, not proof that a record is market-wide.
+- `DecisionInputBundle` is an in-process receipt, not a persisted schema or
+    execution capability. Model construction validates shape/timing/scope, not
+    provenance completeness or bytes; use the builder for actual resolution.
+    Consumers must reverify referenced payload bytes on subsequent reads.
+- Bundle identity includes snapshot digest, normalized UTC cutoff, universe
+    reference, effective members, applicable revision orders, unscoped policy,
+    admitted records, and exclusions. It inherits the snapshot's order-sensitive
+    identity; it is not an order-independent hash of the complete input archive.
+- Bundle construction is not yet wired to engine ports and does not enforce
+    source approval, freshness, normalized-content validity, membership evidence
+    authenticity, or trade authorization. Empty bundles do not authorize signals.
 - As-of selection is local and not wired into an actual engine. `RevisionOrder`
     evidence and observation timestamps are caller-supplied claims. The resolver
     verifies evidence bytes, not their interpretation or source-specific
@@ -172,8 +192,8 @@ and define handling of market-wide records. Keep actual engines and sources gate
     cannot overwrite history; overlapping declarations are rejected, not resolved.
     Callers must supply as-known interval declarations and separately verified
     evidence; a later-known removal cannot be inserted into an earlier declaration.
-- Membership selection is not yet combined with record selection, engine replay,
-    or order risk checks. Manifest JSON is an archival container, not proof that
+- Membership and record selection are combined only in the new local builder,
+    not engine replay or order risk checks. Manifest JSON is an archival container, not proof that
     the whole file existed at each earlier replay timestamp.
 - Snapshot digests identify serialized snapshots, including record ordering and
     creation metadata. Order-independent content-set hashing is not implemented.
@@ -192,6 +212,7 @@ and define handling of market-wide records. Keep actual engines and sources gate
 - Point-in-time contract: `src/ats/domain/data.py`
 - Local as-of selector: `src/ats/data/asof.py`
 - Local artifact resolver: `src/ats/data/artifacts.py`
+- Per-decision input bundle: `src/ats/data/bundle.py`
 - Historical universe contract: `src/ats/domain/universe.py`
 - Universe artifact schema: `schemas/data/universe-membership.v1.schema.json`
 - Artifact integrity and selection tests: `tests/unit/data/test_artifacts.py`
@@ -218,6 +239,6 @@ and define handling of market-wide records. Keep actual engines and sources gate
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
     all four schema generator checks (nine schemas), and `uv run pytest -q`
-    (330 passed, 2 skipped for Windows symlink creation privileges)
+    (352 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)

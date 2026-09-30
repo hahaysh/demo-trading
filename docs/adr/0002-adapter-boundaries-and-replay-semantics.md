@@ -94,11 +94,10 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Combine verified record and membership selection into a local per-decision input
-bundle. Bind snapshot, cutoff, and revision evidence and exclude out-of-universe
-instrument records. Define market-wide record handling. Review source-specific
-ordering and completeness before real connectors or engine replay. All source,
-risk, promotion, and cloud gates remain.
+Apply source allowlist eligibility to the local input builder with exact policy
+provenance and negative tests for unapproved sources. Use local fixtures without
+approving policies or activating collection. Review source-specific ordering and
+completeness before real connectors or engine replay. All approval gates remain.
 
 ## Implemented Local Artifact Verification
 
@@ -147,6 +146,34 @@ reconciliation and source completeness still require a separate protocol. Eviden
 references are retained but not recursively resolved or interpreted here. Empty
 or absent membership does not prove universal exclusion or permission to trade.
 No changes are made to engines, record selection, risk, or broker execution.
+
+## Implemented Per-Decision Bundle
+
+`ats.data.build_decision_inputs` composes verified record selection and known,
+effective universe membership into a frozen `DecisionInputBundle`. It retains
+snapshot ID/cutoff/digest, a UTC decision cutoff, universe reference, selected
+membership declarations, all applicable revision-order claims, and scope policy.
+
+Only instrument records whose IDs belong to the selected membership are admitted.
+Other selected instrument records are recorded as `OUTSIDE_UNIVERSE` exclusions.
+`instrument_id=None` does not distinguish market-wide information from unresolved
+symbol mapping: it defaults to `UNSCOPED` exclusion. Callers may explicitly use
+`UnscopedRecordPolicy.INCLUDE`; this choice is included in the bundle digest.
+Exclusions retain source/item/revision identifiers but no raw payload content.
+
+All visible raw revisions and applicable ordering evidence are verified before
+scope filtering, including excluded items and superseded revisions. Thus corrupt
+data cannot be hidden by filtering. Future raw observations/order evidence are
+not read. Errors return no partial bundle; the original snapshot is unchanged.
+
+The builder sorts through the existing selectors; repeat builds of the same
+inputs and timezone-equivalent cutoffs produce the same bundle digest. Snapshot
+identity still includes its original ordering and creation metadata. Future
+orders are not part of the applied provenance, whereas the snapshot digest still
+binds its entire archive. The bundle is an in-process receipt, not a new persisted
+schema, proof of authentic source claims, or an engine sandbox. Direct model
+construction is not evidence that the resolver ran. Source eligibility, freshness,
+semantic content validation, and actual engine integration remain separate work.
 
 ## Acceptance Evidence
 

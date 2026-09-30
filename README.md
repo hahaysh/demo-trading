@@ -194,6 +194,28 @@ lookup, `artifact.require_member(instrument_id, at=cutoff)` rejects absent membe
 
 Source evidence, completeness, interval correction provenance, and ETF approval
 authority are not authenticated. Later-known removals must not be backdated into
-an earlier declaration. Membership selection is separate from record selection
-and does not authorize orders. The existing data schema generator now includes
+an earlier declaration. The input builder below combines membership and record
+selection but does not authorize orders. The existing data schema generator includes
 `schemas/data/universe-membership.v1.schema.json`.
+
+## Per-Decision Inputs
+
+Use `ats.data.build_decision_inputs(resolver, snapshot, at=cutoff,
+revision_orders=orders)` to produce a frozen `DecisionInputBundle`. It combines
+verified record selection with effective, known universe membership. Instrument
+records outside that universe are excluded with a source/item/revision reason.
+Records with no instrument ID default to exclusion because they might represent
+unresolved symbols rather than market-wide information. Explicit
+`unscoped_policy=UnscopedRecordPolicy.INCLUDE` permits them and records that choice.
+
+The builder verifies all visible raw history before scope filtering, not only
+admitted records. Missing/corrupt artifacts or ambiguous revisions fail without a
+partial bundle. Future raw observations and ordering evidence are not read.
+`bundle.content_digest()` binds snapshot identity, UTC cutoff, universe, effective
+members, applicable revision orders, inclusion policy, records, and exclusions.
+It does not remove the underlying snapshot's order-sensitive identity.
+
+This is an in-process provenance receipt, not a persisted schema, approved-source
+check, or trade authorization. Source eligibility/freshness and engine integration
+remain unimplemented. Direct model creation is not proof of verified bytes;
+consumers that later read artifact files must use the resolver again.

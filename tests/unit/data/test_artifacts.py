@@ -10,6 +10,11 @@ from pydantic import ValidationError
 
 from ats.data.artifacts import ArtifactResolutionError, LocalArtifactResolver
 from ats.data.asof import AsOfSelectionError, RevisionOrder
+from ats.data.bundle import (
+    DecisionInputBundle,
+    UnscopedRecordPolicy,
+    build_decision_inputs,
+)
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.strategy import ArtifactRef
 from ats.domain.universe import UniverseMember, UniverseMembershipArtifact
@@ -497,3 +502,277 @@ def test_universe_cannot_extrapolate_past_manifest_or_snapshot(tmp_path: Path) -
         )
     with pytest.raises(ArtifactResolutionError, match="timezone-aware"):
         resolver.select_universe_members_as_of(snapshot, at=datetime(2026, 9, 30))
+
+
+def _bundle_snapshot(
+    root: Path, members: tuple[UniverseMember, ...] | None = None
+) -> DataSnapshot:
+    records: list[PointInTimeRecord] = []
+    for item, instrument in [
+        ("inside", "krx-005930"),
+        ("outside", "krx-000660"),
+        ("unscoped", None),
+    ]:
+        records.append(
+            PointInTimeRecord.model_validate(
+                {
+                    **_record(_store(root, item.encode())).model_dump(),
+                    "source_item_id": item,
+                    "instrument_id": instrument,
+                }
+            )
+        )
+    reference = _universe_reference(
+        root, _universe(*(members if members is not None else (_member(),)))
+    )
+    return DataSnapshot.model_validate(
+        {**_snapshot(*records).model_dump(), "universe_membership": reference}
+    )
+
+
+def test_bundle_combines_verified_inputs_and_explicit_exclusions(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    before = snapshot.model_dump_json()
+    bundle = build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=FREEZE)
+    assert [record.source_item_id for record in bundle.records] == ["inside"]
+    assert [(record.source_item_id, record.reason) for record in bundle.excluded] == [
+        ("outside", "OUTSIDE_UNIVERSE"),
+        ("unscoped", "UNSCOPED"),
+    ]
+    assert bundle.snapshot.digest == snapshot.content_digest()
+    assert bundle.universe == snapshot.universe_membership
+    assert bundle.members == (_member(),)
+    assert snapshot.model_dump_json() == before
+    rebuilt = DecisionInputBundle.model_validate_json(bundle.model_dump_json())
+    assert rebuilt == bundle
+    assert rebuilt.content_digest() == bundle.content_digest()
+    with pytest.raises(ValidationError):
+        bundle.__setattr__("records", ())
+
+
+def test_unscoped_inclusion_is_explicit_and_changes_bundle_identity(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    resolver = LocalArtifactResolver(tmp_path)
+    default = build_decision_inputs(resolver, snapshot, at=FREEZE)
+    included = build_decision_inputs(
+        resolver, snapshot, at=FREEZE, unscoped_policy=UnscopedRecordPolicy.INCLUDE
+    )
+    assert [record.source_item_id for record in included.records] == [
+        "inside",
+        "unscoped",
+    ]
+    assert len(included.excluded) == 1
+    assert included.content_digest() != default.content_digest()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"observed_at": FREEZE},
+        {"effective_from": FREEZE, "effective_until": None},
+        {"effective_until": FREEZE - timedelta(hours=1)},
+    ],
+)
+def test_ineligible_membership_cannot_admit_instrument_record(
+    tmp_path: Path, changes: dict[str, object]
+) -> None:
+    cutoff = FREEZE - timedelta(minutes=1)
+    snapshot = _bundle_snapshot(tmp_path, (_member(**changes),))
+    records = tuple(
+        PointInTimeRecord.model_validate({**record.model_dump(), "observed_at": cutoff})
+        for record in snapshot.records
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": records}
+    )
+    bundle = build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=cutoff)
+    assert bundle.records == ()
+    assert any(
+        item.source_item_id == "inside" and item.reason == "OUTSIDE_UNIVERSE"
+        for item in bundle.excluded
+    )
+
+
+def test_empty_universe_does_not_admit_instruments(tmp_path: Path) -> None:
+    bundle = build_decision_inputs(
+        LocalArtifactResolver(tmp_path), _bundle_snapshot(tmp_path, ()), at=FREEZE
+    )
+    assert bundle.members == bundle.records == ()
+    assert len(bundle.excluded) == 3
+
+
+@pytest.mark.parametrize("target", ["inside", "outside", "unscoped", "universe"])
+def test_corrupt_visible_inputs_cannot_be_hidden_by_filtering(
+    tmp_path: Path, target: str
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    digest = (
+        snapshot.universe_membership.digest
+        if target == "universe"
+        else next(
+            record.raw_payload_digest
+            for record in snapshot.records
+            if record.source_item_id == target
+        )
+    )
+    (tmp_path / "sha256" / digest.removeprefix("sha256:")).write_bytes(b"tampered")
+    with pytest.raises(ArtifactResolutionError):
+        build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=FREEZE)
+
+
+def test_bundle_binds_applied_revision_order_and_omits_future_order(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    original = snapshot.records[0]
+    latest = PointInTimeRecord.model_validate(
+        {
+            **original.model_dump(),
+            "revision": "rev-002",
+            "raw_payload_digest": _store(tmp_path, b"updated"),
+        }
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": (*snapshot.records, latest)}
+    )
+    order = RevisionOrder.model_validate(
+        {
+            **_order(_store(tmp_path, b"order evidence")).model_dump(),
+            "source_item_id": original.source_item_id,
+        }
+    )
+    future_order = RevisionOrder.model_validate(
+        {
+            **order.model_dump(),
+            "source_item_id": "future-item",
+            "observed_at": FREEZE + timedelta(days=1),
+            "evidence": ArtifactRef(
+                artifact_id="future-evidence", version="1", digest=_digest(b"absent")
+            ),
+        }
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    with pytest.raises(AsOfSelectionError):
+        build_decision_inputs(resolver, snapshot, at=FREEZE)
+    bundle = build_decision_inputs(
+        resolver, snapshot, at=FREEZE, revision_orders=(future_order, order)
+    )
+    assert bundle.records == (latest,)
+    assert bundle.revision_orders == (order,)
+    changed_order = RevisionOrder.model_validate(
+        {**order.model_dump(), "revisions": ("rev-002", "rev-001")}
+    )
+    changed = build_decision_inputs(
+        resolver, snapshot, at=FREEZE, revision_orders=(changed_order,)
+    )
+    assert changed.records == (original,)
+    assert changed.content_digest() != bundle.content_digest()
+
+
+def test_bundle_determinism_and_normalized_cutoff(tmp_path: Path) -> None:
+    resolver = LocalArtifactResolver(tmp_path)
+    snapshot = _bundle_snapshot(tmp_path)
+    first = build_decision_inputs(resolver, snapshot, at=FREEZE)
+    second = build_decision_inputs(
+        resolver, snapshot, at=FREEZE.astimezone(timezone(timedelta(hours=9)))
+    )
+    assert first.content_digest() == second.content_digest()
+    assert first == second
+
+
+def test_bundle_rejects_unscoped_and_outside_records_on_construction(
+    tmp_path: Path,
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    bundle = build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=FREEZE)
+    for record in snapshot.records[1:]:
+        payload = {**bundle.model_dump(), "records": (record,), "excluded": ()}
+        with pytest.raises(ValidationError):
+            DecisionInputBundle.model_validate(payload)
+
+
+def test_bundle_rejects_invalid_cutoff_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+
+    def unexpected_read(resolver: LocalArtifactResolver, digest: str) -> bytes:
+        pytest.fail("invalid cutoff must not perform reads")
+
+    monkeypatch.setattr(LocalArtifactResolver, "read_digest", unexpected_read)
+    for cutoff in (datetime(2026, 9, 30), FREEZE + timedelta(seconds=1)):
+        with pytest.raises(ValueError):
+            build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=cutoff)
+
+
+def test_bundle_does_not_read_future_revision_bytes(tmp_path: Path) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    cutoff = FREEZE - timedelta(minutes=1)
+    visible = tuple(
+        PointInTimeRecord.model_validate({**record.model_dump(), "observed_at": cutoff})
+        for record in snapshot.records
+    )
+    later = PointInTimeRecord.model_validate(
+        {
+            **snapshot.records[0].model_dump(),
+            "revision": "rev-002",
+            "raw_payload_digest": _digest(b"future missing bytes"),
+        }
+    )
+    snapshot = DataSnapshot.model_validate(
+        {**snapshot.model_dump(), "records": (*visible, later)}
+    )
+    resolver = LocalArtifactResolver(tmp_path)
+    assert build_decision_inputs(resolver, snapshot, at=cutoff).records == (visible[0],)
+    with pytest.raises(AsOfSelectionError, match="ambiguous"):
+        build_decision_inputs(resolver, snapshot, at=FREEZE)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "duplicate_member",
+        "duplicate_record",
+        "duplicate_exclusion",
+        "late_record",
+        "late_member",
+        "late_order",
+        "late_cutoff",
+    ],
+)
+def test_bundle_rejects_invalid_structural_receipts(tmp_path: Path, case: str) -> None:
+    snapshot = _bundle_snapshot(tmp_path)
+    bundle = build_decision_inputs(LocalArtifactResolver(tmp_path), snapshot, at=FREEZE)
+    payload = bundle.model_dump()
+    if case == "duplicate_member":
+        payload["members"] = (*bundle.members, bundle.members[0])
+    elif case == "duplicate_record":
+        payload["records"] = (*bundle.records, bundle.records[0])
+    elif case == "duplicate_exclusion":
+        payload["excluded"] = (*bundle.excluded, bundle.excluded[0])
+    elif case == "late_record":
+        payload["records"] = (
+            {
+                **bundle.records[0].model_dump(),
+                "observed_at": FREEZE + timedelta(seconds=1),
+            },
+        )
+    elif case == "late_member":
+        payload["members"] = (
+            {
+                **bundle.members[0].model_dump(),
+                "observed_at": FREEZE + timedelta(seconds=1),
+            },
+        )
+    elif case == "late_order":
+        payload["revision_orders"] = (
+            _order(_digest(b"order"), observed_at=FREEZE + timedelta(seconds=1)),
+        )
+    else:
+        payload["cutoff"] = FREEZE + timedelta(seconds=1)
+    with pytest.raises(ValidationError):
+        DecisionInputBundle.model_validate(payload)
