@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from ats.schema import (
+    render_daily_price_json_schema,
     render_data_snapshot_json_schema,
     render_market_event_json_schema,
     render_universe_membership_json_schema,
@@ -33,6 +34,9 @@ def parse_args() -> Arguments:
 def main() -> int:
     args = parse_args()
     schemas = {
+        SCHEMA_PATH.with_name(
+            "daily-price.v1.schema.json"
+        ): render_daily_price_json_schema(),
         SCHEMA_PATH: render_data_snapshot_json_schema(),
         SCHEMA_PATH.with_name(
             "market-event.v1.schema.json"

@@ -1,0 +1,116 @@
+{
+  "$id": "urn:ats:schema:daily-price:v1",
+  "additionalProperties": false,
+  "properties": {
+    "adjustment": {
+      "const": "UNADJUSTED",
+      "default": "UNADJUSTED",
+      "title": "Adjustment",
+      "type": "string"
+    },
+    "api_version": {
+      "const": "ats/v1",
+      "default": "ats/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "close": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,21}0*$)\\d{0,14}\\.\\d{0,6}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Close"
+    },
+    "currency": {
+      "const": "KRW",
+      "default": "KRW",
+      "title": "Currency",
+      "type": "string"
+    },
+    "high": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,21}0*$)\\d{0,14}\\.\\d{0,6}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "High"
+    },
+    "instrument_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Instrument Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "DailyPrice",
+      "default": "DailyPrice",
+      "title": "Kind",
+      "type": "string"
+    },
+    "low": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,21}0*$)\\d{0,14}\\.\\d{0,6}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Low"
+    },
+    "open": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,21}0*$)\\d{0,14}\\.\\d{0,6}0*$)",
+          "type": "string"
+        }
+      ],
+      "title": "Open"
+    },
+    "session": {
+      "format": "date",
+      "title": "Session",
+      "type": "string"
+    },
+    "session_close": {
+      "format": "date-time",
+      "title": "Session Close",
+      "type": "string"
+    },
+    "volume": {
+      "minimum": 0,
+      "title": "Volume",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "session",
+    "session_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume"
+  ],
+  "title": "DailyPrice",
+  "type": "object"
+}

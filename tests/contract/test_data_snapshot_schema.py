@@ -7,6 +7,7 @@ from ats.schema import (
     DATA_SNAPSHOT_SCHEMA_ID,
     MARKET_EVENT_SCHEMA_ID,
     UNIVERSE_MEMBERSHIP_SCHEMA_ID,
+    daily_price_json_schema,
     data_snapshot_json_schema,
     market_event_json_schema,
     universe_membership_json_schema,
@@ -48,7 +49,14 @@ def test_committed_universe_membership_schema_matches_model() -> None:
     assert schema["additionalProperties"] is False
 
 
-@pytest.mark.parametrize("name", ["market-event", "universe-membership"])
+def test_daily_price_schema_matches_model() -> None:
+    schema: object = json.loads(
+        SCHEMA_PATH.with_name("daily-price.v1.schema.json").read_text(encoding="utf-8")
+    )
+    assert schema == daily_price_json_schema()
+
+
+@pytest.mark.parametrize("name", ["market-event", "universe-membership", "daily-price"])
 @pytest.mark.parametrize("state", ["missing", "stale"])
 def test_data_generator_detects_schema_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str, name: str

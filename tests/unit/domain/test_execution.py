@@ -9,6 +9,7 @@ from ats.domain.execution import OrderIntent, RiskCheck, RiskDecision
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import RiskPolicy
 from ats.domain.strategy import ArtifactRef
+from ats.risk.assessor import RiskState, assess_limit_intent
 
 CREATED = datetime(2026, 9, 30, 7, tzinfo=UTC)
 CHECKED = CREATED + timedelta(minutes=1)
@@ -89,6 +90,113 @@ def _decision_payload(intent: OrderIntent) -> dict[str, object]:
             for check in RiskCheck
         ),
     }
+
+
+def _risk_state() -> RiskState:
+    opened = datetime(2026, 10, 1, tzinfo=UTC)
+    return RiskState.model_validate(
+        {
+            "account_id": "paper-account",
+            "instrument_id": "krx-005930",
+            "observed_at": opened,
+            "valid_until": opened + timedelta(seconds=30),
+            "equity": "10000000",
+            "cash": "10000000",
+            "gross_exposure": "0",
+            "reserved_cash": "0",
+            "reserved_buy_notional": "0",
+            "held_quantity": 0,
+            "reserved_sell_quantity": 0,
+            "quote_price": "70000",
+            "quote_at": opened,
+            "daily_loss_fraction": "0",
+            "drawdown_fraction": "0",
+            "champion_version_id": UUID(int=2),
+            "champion_digest": DIGEST,
+            "champion_selection": ARTIFACT,
+            "universe_members": ("krx-005930",),
+            "duplicate_client_order_id": False,
+            "kill_switch_active": False,
+            "opening_window_start": opened,
+            "opening_window_end": opened + timedelta(minutes=5),
+            "fee_reserve_bps": 10,
+        }
+    )
+
+
+def test_independent_assessor_computes_checks_and_binds_state() -> None:
+    policy = _policy()
+    intent = _intent(policy)
+    state = _risk_state()
+    decision = assess_limit_intent(
+        intent, policy, state, at=state.observed_at, assessor=ARTIFACT
+    )
+    assert decision.outcome.value == "ALLOW"
+    decision.validate_for_intent(intent, policy, at=state.observed_at)
+    assert all(
+        check.report.digest == evidence_digest(state) for check in decision.checks
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("kill_switch_active", True, "KILL_SWITCH"),
+        ("daily_loss_fraction", "0.01", "DAILY_LOSS"),
+        ("drawdown_fraction", "0.15", "DRAWDOWN"),
+        ("reserved_cash", "9999999", "CASH_AVAILABLE"),
+        ("reserved_buy_notional", "1000000", "SYMBOL_WEIGHT"),
+        ("duplicate_client_order_id", True, "DUPLICATE_ORDER"),
+        ("universe_members", (), "UNIVERSE"),
+        ("champion_digest", OTHER_DIGEST, "CHAMPION"),
+        ("quote_at", datetime(2026, 9, 30, tzinfo=UTC), "PRICE_FRESHNESS"),
+    ],
+)
+def test_independent_assessor_denies_real_failure_conditions(
+    field: str, value: object, reason: str
+) -> None:
+    state = RiskState.model_validate({**_risk_state().model_dump(), field: value})
+    decision = assess_limit_intent(
+        _intent(_policy()), _policy(), state, at=state.observed_at, assessor=ARTIFACT
+    )
+    assert decision.outcome.value == "DENY"
+    assert reason in decision.reason
+
+
+def test_independent_assessor_denies_oversized_buys_and_short_sales() -> None:
+    state = _risk_state()
+    policy = _policy()
+    buy = OrderIntent.model_validate({**_intent(policy).model_dump(), "quantity": 1000})
+    sell = OrderIntent.model_validate({**_intent(policy).model_dump(), "side": "SELL"})
+    for intent in (buy, sell):
+        assert (
+            assess_limit_intent(
+                intent, policy, state, at=state.observed_at, assessor=ARTIFACT
+            ).outcome.value
+            == "DENY"
+        )
+
+
+def test_independent_assessor_fails_on_expired_state_and_draft_policy() -> None:
+    state = _risk_state()
+    with pytest.raises(ValueError, match="expired"):
+        assess_limit_intent(
+            _intent(_policy()),
+            _policy(),
+            state,
+            at=state.valid_until,
+            assessor=ARTIFACT,
+        )
+    policy = RiskPolicy.model_validate(
+        {
+            **_policy().model_dump(),
+            "metadata": {"policy_id": "paper-risk-policy", "version": "1.0.0"},
+        }
+    )
+    with pytest.raises(ValueError, match="unapproved"):
+        assess_limit_intent(
+            _intent(policy), policy, state, at=state.observed_at, assessor=ARTIFACT
+        )
 
 
 def test_paper_contract_round_trip_binding_and_immutability() -> None:

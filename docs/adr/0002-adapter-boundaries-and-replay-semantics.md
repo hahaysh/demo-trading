@@ -94,10 +94,12 @@ snapshot identity alone does not identify the complete selection inputs.
 
 ## Proposed Next Slice
 
-Define deterministic daily-price normalization from verified synthetic raw payloads,
-including instrument/session identity, value validation, and normalized-content
-hash checks. Review collection-time licensing, policy activation, and source
-completeness before real connectors or engine replay. All approval gates remain.
+The synthetic daily-price-to-report workflow is implemented; see
+`docs/plans/predeployment.md` for its exact limitations and remaining milestones.
+Resolve source usage rights and real fixture provenance before source-specific
+integration. Actual engine certification, KIS paper execution, and authenticated
+operations remain unimplemented. No numerical certification tolerances, source
+approvals, or deployment permissions are implied by the synthetic smoke run.
 
 ## Implemented Local Artifact Verification
 

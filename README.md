@@ -9,6 +9,10 @@ and promotion always requires human approval. See
 
 ## Local Setup
 
+Deployment readiness: **BLOCKED**. See `docs/plans/predeployment.md` for milestone
+status, real integration gaps, and approval requirements. The synthetic workflow
+below is executable; it is not a real-data or KIS certification result.
+
 Prerequisites: `uv` and Python 3.11. `uv` can install the pinned Python version.
 
 ```powershell
@@ -18,6 +22,25 @@ uv run ruff check .
 uv run pyright
 uv run pytest
 ```
+
+## Runnable Synthetic Workflow
+
+```powershell
+uv run python -m ats.demo --output .local/my-new-run
+```
+
+Use a new directory each run. The workflow writes verified synthetic raw artifacts,
+replay/strategy inputs, risk state, and `report.json`. It normalizes daily prices,
+runs a next-session-open trend baseline, compares three immutable parameter
+descendants, and exercises numerical risk acceptance/kill-switch denial. It never
+connects to a broker or cloud service, promotes a candidate, or modifies policies.
+The report explicitly records `deployment_ready=false` and `promoted=false`.
+
+Prices use positive finite decimals with OHLC consistency and integer volume.
+Raw bytes, normalized content hash, instrument, and session-close provenance are
+verified before use. The fixture JSON format is not a KIS/DART adapter. Native
+simulation uses supplied session opens and synthetic cost assumptions; calendar,
+corporate-action, multi-asset and independent-engine validation remain outstanding.
 
 ## Data Contracts
 

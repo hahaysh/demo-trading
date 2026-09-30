@@ -1,0 +1,46 @@
+name: Local Quality and Synthetic Workflow
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned package manager
+        run: python -m pip install uv==0.11.26
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-groups
+      - name: Check lockfile
+        run: uv lock --check
+      - name: Lint
+        run: uv run ruff check .
+      - name: Formatting
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run pyright
+      - name: Strategy schema
+        run: uv run python scripts/generate_strategy_schema.py --check
+      - name: Data schemas
+        run: uv run python scripts/generate_data_snapshot_schema.py --check
+      - name: Research schemas
+        run: uv run python scripts/generate_research_schemas.py --check
+      - name: Execution schemas
+        run: uv run python scripts/generate_execution_schemas.py --check
+      - name: Tests
+        run: uv run pytest -q
+      - name: Synthetic end-to-end smoke
+        run: uv run python -m ats.demo --output .local/ci-demo

@@ -1,8 +1,13 @@
 # Project Status
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
 
 ## Active Milestone
+
+Working toward predeployment exit gates in `docs/plans/predeployment.md`.
+The runnable local milestone is now synthetic price normalization, native trend
+backtesting, bounded candidate comparison, and independent risk smoke checks.
+Overall deployment readiness remains BLOCKED; real integrations are not complete.
 
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
 and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
@@ -86,7 +91,19 @@ per-decision input bundle.
     strictly increasing UTC cutoffs over pinned local inputs. Each cutoff runs
     the existing bundle builder; failure raises with its index/cutoff and chained
     cause, without returning partial results. Results bind the complete request.
-- Latest local checks on 2026-09-30: 423 tests passed; 2 actual symlink tests
+- Added exact-decimal `DailyPrice` normalization from verified local JSON bytes,
+    with instrument/session provenance, OHLC/volume checks, and normalized hashes.
+- Added a functional single-instrument native TREND smoke backtest with next-session
+    opens, explicit transaction costs/slippage, volume caps, and equity/drawdown reports.
+- Added bounded immutable lookback comparisons and a numerical paper LIMIT risk
+    assessor. No registry, authenticated approval, broker submission, or certification
+    is implied by these local functions.
+- Ran `uv run python -m ats.demo --output .local/predeploy-20261001-final`:
+    two baseline fills, three candidate reports, risk ALLOW and kill-switch DENY,
+    with deployment and promotion flags remaining false.
+- Added deployment-free Linux/Windows CI configuration; remote CI has not run here.
+- Built the Python wheel and validated CI YAML structure locally.
+- Latest local checks on 2026-10-01: 463 tests passed; 2 actual symlink tests
     skipped because Windows link creation requires privileges unavailable here.
     The mocked reparse-attribute test, lint, format, types, schemas, and lock
     checks passed.
@@ -118,13 +135,17 @@ per-decision input bundle.
 
 ## Next Executable Step
 
-Define a typed daily-price normalization contract and a deterministic local
-fixture adapter from verified raw bytes. Check instrument/session identity,
-price/volume constraints, and normalized content hashes before consuming prices.
-Keep external sources, actual engines, and broker execution disabled.
+Use the milestone ledger in `docs/plans/predeployment.md`. Obtain approved real
+data and recorded source fixtures, then implement source-specific normalization
+and actual Qlib/LEAN certification. KIS paper, registry, authenticated operator
+services, isolated AI research, and deployment prerequisites remain unfinished.
 
 ## Known Boundaries
 
+- The new native smoke evaluator calculates synthetic returns but is not Qlib/LEAN
+    certification, a complete KRX execution model, or a production portfolio engine.
+    Numerical risk checks operate on caller-supplied trusted state and do not
+    provide atomic submission/reservations or authenticated account access.
 - Local replay materializes data bundles only; it does not simulate a strategy,
     calculate returns, or execute an engine. Request cutoffs must be nonempty,
     aware, unique, and increasing; no sorting or deduplication silently repairs them.
@@ -205,10 +226,11 @@ Keep external sources, actual engines, and broker execution disabled.
     `decision.validate_for_intent(intent, policy, at=trusted_now)` with the current
     operator policy; this checks binding and a half-open validity interval, not
     authenticated assessor identity or the truth of the check reports.
-- Runtime checks of positions, reserved cash, live quotes, portfolio limits,
-    champion selection, historical universe, holidays, tick sizes, and kill switch
-    are not implemented. `SELL` means reducing an existing long position; only
-    an independent service using actual holdings can rule out a short sale.
+- Numerical position/cash/exposure/loss/kill-switch checks now exist for LIMIT
+    intents using supplied state. Live state acquisition, authenticated champion
+    and universe providers, holidays, tick sizes, reservations and broker wiring
+    are not implemented. `SELL` means reducing an existing long position; actual
+    account reconciliation remains necessary to rule out a short sale.
 - Session dates only enforce ordering, not the next KRX trading session or its
     opening time. Client order IDs are metadata; atomic replay prevention,
     resource reservations, and revalidation before submission remain required.
@@ -267,6 +289,12 @@ Keep external sources, actual engines, and broker execution disabled.
 - Local as-of selector: `src/ats/data/asof.py`
 - Local artifact resolver: `src/ats/data/artifacts.py`
 - Per-decision input bundle: `src/ats/data/bundle.py`
+- Runnable local workflow: `src/ats/demo.py`
+- Daily-price contract/normalizer: `src/ats/domain/prices.py`, `src/ats/data/prices.py`
+- Native backtest and comparison: `src/ats/backtest/native.py`, `src/ats/backtest/candidates.py`
+- Numerical risk assessor: `src/ats/risk/assessor.py`
+- Predeployment milestone ledger: `docs/plans/predeployment.md`
+- CI configuration: `.github/workflows/quality.yml`
 - Local multi-cutoff replay: `src/ats/data/replay.py`
 - Availability/freshness rules: `src/ats/data/requirements.py`
 - Historical universe contract: `src/ats/domain/universe.py`
@@ -294,7 +322,7 @@ Keep external sources, actual engines, and broker execution disabled.
 - Operator policies: `config/source-allowlist.yaml`, `config/risk-policy.yaml`,
     and `config/promotion-policy.yaml`
 - Validation: `git diff --check`, `uv lock --check`, Ruff lint/format, Pyright,
-    all four schema generator checks (nine schemas), and `uv run pytest -q`
-    (423 passed, 2 skipped for Windows symlink creation privileges)
+    all four schema generator checks (ten schemas), and `uv run pytest -q`
+    (463 passed, 2 skipped for Windows symlink creation privileges)
 - Point-in-time validation: focused Ruff/Pyright checks, 6 unit tests, and 2
     schema contract tests (2026-09-30)
