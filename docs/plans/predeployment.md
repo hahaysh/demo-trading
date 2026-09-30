@@ -7,13 +7,17 @@ Updated: 2026-10-01
 **NOT READY FOR DEPLOYMENT.** A local synthetic workflow runs end to end. It is
 not a real-data backtest, independent certification, KIS paper session, production
 risk service, or completed self-improvement pilot. The master plan and its human
-approval gates remain authoritative. No real source, policy, or strategy was approved.
+approval gates remain authoritative. Only the explicitly approved KIS one-off
+quote smoke has completed by user report; no general collection policy or live
+strategy has been approved.
 
 The live extension and ADR 0003 have user approval for staged implementation as
 of 2026-10-01, starting with production quotations. This does not approve live
 activation or deployment. A quotes-only client is implemented and verified with
-61 offline tests; source-policy/retention approval and real-account smoke remain
-outstanding. The original paper/certification gates are unchanged.
+61 offline tests. The operator subsequently approved a dedicated quotes-only
+smoke policy and supplied a successful one-row production receipt. Its policy
+digest matches the local policy; raw data was not persisted and coverage remains
+unverified. The original paper/certification gates are unchanged.
 
 ## Runnable Local Evidence
 
@@ -48,7 +52,7 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 | Milestone | State | Required exit evidence |
 | --- | --- | --- |
 | Local verified price-to-report workflow | Implemented, synthetic only | Deterministic reports, normalized hashes, next-open fills, costs, bounded candidate lineage, negative tests |
-| Production KIS quotes-only connection | Implemented, offline tested; collection blocked | Approve source usage/retention and rate policy, configure secrets locally, explicitly verify token and quote responses; no order capability |
+| Production KIS quotes-only connection | One-off smoke successful by user report; 61 offline tests | Receipt for 005930 / 2026-09-30 has one row and matched policy digest; no raw persistence or coverage certification; no order capability |
 | Approved real-data backtest | Blocked and incomplete | Documented source rights; recorded real fixtures; calendars, corporate actions, delistings, coverage and data quality; actual source adapters |
 | Qlib/LEAN independent certification | Not implemented | Both engines execute the exact candidate; approved comparison protocol/tolerances; golden order/return replay; untouched OOS and statistical gates |
 | KIS paper execution and reconciliation | Not implemented | Paper credentials entered outside chat; independent authenticated risk state; atomic reservations/idempotency; token/retry/fill/reconciliation and kill-switch drills |
@@ -85,11 +89,13 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 ## External Inputs Needed
 
 1. Source-specific usage and retention approvals plus legally usable recorded
-   data. Existing `config/` policies remain DRAFT and must not be silently enabled.
+  data for broader collection/storage. The default source, risk and promotion
+  policies remain DRAFT; the approved KIS policy is limited to the named smoke.
 2. Production KIS credentials configured locally for the quotes-only collector,
-  after source-policy approval. Separate KIS paper credentials remain necessary
-  for paper-session validation. Never paste secrets into chat. No broker request
-  has been sent.
+  used by the operator for the reported successful smoke. Separate KIS paper
+  credentials remain necessary for paper-session validation. Never paste secrets
+  into chat. The complete user-supplied receipt and its verification limits are
+  recorded in `docs/sources/kis-market-data.md`.
 3. Review of unresolved ADR 0002 semantics and quantitative certification criteria.
 4. Subscription access and explicit infrastructure-scaffolding consent. The prior
    HTTP 403 is recorded history; access has not been retested in this session.
@@ -98,7 +104,10 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 
 ## Next Work
 
-Resolve the source-data gate and produce a real-data normalization/backtest
-acceptance dataset before expanding simulation claims. Implement and verify the
+KIS response normalization and quality checks now pass fabricated-fixture tests;
+149 related price/KIS/native tests passed. This does not validate the unsaved live
+smoke data. Approve the broader collection/storage scope, enforce retention and
+connect trusted calendars/corporate-action resolution to produce a verified
+real-data backtest acceptance dataset before expanding simulation claims. Implement the
 actual engine, KIS, registry, and operator services against that evidence. Do not
 replace unavailable engine runs or paper sessions with synthetic passing reports.

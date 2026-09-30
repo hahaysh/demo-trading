@@ -15,6 +15,7 @@ from ats.data.kis import (
     KisQuoteError,
     main,
 )
+from ats.data.prices import normalize_kis_daily_prices
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import SourceAllowlist, load_policy
 
@@ -90,6 +91,7 @@ def _prices(**changes: object) -> dict[str, object]:
                 "acml_vol": "1000",
                 "flng_cls_code": "",
                 "prtt_rate": "0",
+                "revl_issu_reas": "00",
                 "mod_yn": "N",
             }
         ],
@@ -571,3 +573,16 @@ def test_slow_small_chunks_exhaust_response_budget() -> None:
         client.daily_prices(REQUEST, source_policy=_policy())
     assert len(requests) == 2
     assert clock.elapsed == 35
+
+
+def test_mock_quote_receipt_normalizes_without_another_request() -> None:
+    requests: list[httpx.Request] = []
+    with _client(requests, Clock()) as client:
+        receipt = client.daily_prices(REQUEST, source_policy=_policy())
+    close = datetime(2026, 9, 30, 6, 30, tzinfo=UTC)
+    result = normalize_kis_daily_prices(receipt, session_closes={close.date(): close})
+    assert len(requests) == 2
+    assert len(result.bars) == 1
+    assert result.raw_payload_digest == receipt.raw_payload_digest
+    assert result.bars[0].price.volume == 1000
+    assert not result.bars[0].requires_review

@@ -86,6 +86,43 @@ Run deterministic tests with fabricated responses and no broker credentials:
 uv run pytest tests/unit/data/test_kis.py -q
 ```
 
+### KIS Daily-Price Normalization
+
+`ats.data.prices.normalize_kis_daily_prices` converts an in-memory quote receipt
+to immutable `DailyPrice` bars plus separate corporate-action flags. It performs
+no network, credential access or file writes. The existing local fixture parser
+and published price schema are unchanged.
+
+KIS supplies a session date, not a verified closing timestamp. Supply a mapping
+from session date to timezone-aware close time from a trusted calendar; missing
+dates fail rather than defaulting to 15:30. Returned times are normalized to UTC.
+
+```python
+from ats.data.prices import normalize_kis_daily_prices
+
+normalized = normalize_kis_daily_prices(receipt, session_closes=verified_session_closes)
+review_required = any(bar.requires_review for bar in normalized.bars)
+```
+
+The example assumes an existing receipt and independently verified calendar.
+When `review_required` is true, stop downstream admission until review is resolved.
+Prices use exact decimals; volume must be an unsigned integer string. Invalid
+OHLC, missing fields, duplicate JSON keys/sessions, wrong instruments, invalid or
+out-of-request dates and `mod_yn=Y` reject the entire response. Empty responses or
+missing days do not imply verified coverage and are not filled in.
+
+The adapter preserves `flng_cls_code`, `prtt_rate`, `revl_issu_reas` and `mod_yn`
+as typed metadata. Unknown codes fail; action flags, blank ratio/revaluation/open
+indicators and zero volume require review. It never applies a split or dividend
+adjustment. The review property must be honored by downstream code; it is not an
+implemented corporate-action engine or automatic admission gate.
+
+The batch retains observation time, request, policy digest, raw-byte digest and
+normalizer version. Its digest includes corporate-action flags, unlike the
+standalone price digest. This does not authenticate source bytes or policy claims,
+verify the supplied calendar, grant storage rights, or produce point-in-time
+snapshot records. All new tests use fabricated responses, not the unsaved smoke.
+
 ## Data Contracts
 
 `MarketEvent` represents a derived observation, not an order. It carries a

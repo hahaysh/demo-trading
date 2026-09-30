@@ -10,8 +10,11 @@ backtesting, bounded candidate comparison, and independent risk smoke checks.
 Overall deployment readiness remains BLOCKED; real integrations are not complete.
 
 The approved staged extension now includes a production KIS quotes-only client
-with offline transport tests. Collection remains blocked by DRAFT source policy
-and unresolved retention/account terms; no real token or price request was sent.
+with offline transport tests and a user-reported successful one-off production
+smoke for 005930 on 2026-09-30. The supplied receipt contains one row and matches
+the local smoke-policy digest. Raw data was not persisted and coverage remains
+unverified. The default source policy stays DRAFT; bulk/recurring collection is
+not enabled by this smoke approval.
 
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
 and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
@@ -24,12 +27,26 @@ per-decision input bundle.
 - Recorded user implementation approval of the live extension and ADR 0003,
     retaining separate live activation and deployment gates.
 - Reviewed official KIS personal-use, token and daily-price documentation;
-    unresolved retention/usage questions are recorded without approving rights.
+    the operator subsequently attested applicable terms review and a permitted
+    retention end date of 2027-09-30. The separate one-off smoke policy records
+    that attestation, a stricter one-day local maximum and a one-per-minute cap;
+    this is not independent legal verification or approval for general collection.
 - Implemented `ats.data.kis`: fixed production token/daily-price routes, policy
     gating before network, memory-only tokens/receipts, throttling, bounded reads,
     disabled redirects/proxies, sanitized errors and an offline-by-default CLI.
-    HTTPX is locked. 61 focused offline tests passed; actual broker access, price
-    normalization, persistent token coordination and collection are unverified.
+    HTTPX is locked. The initial 61 focused offline tests passed. Persistent token
+    coordination, general collection and a saved point-in-time dataset remain incomplete.
+- Implemented offline `normalize_kis_daily_prices` with exact `DailyPrice` bars,
+    caller-supplied session close times, preserved corporate-action flags and
+    receipt provenance. Invalid/incomplete/no-open rows reject the batch; action
+    flags, blank flag values and zero volume require downstream review.
+    No price adjustments, calendar authentication, snapshot creation or storage
+    are implied. 149 relevant offline price/KIS/native tests, types and lint passed.
+- Recorded the user's production smoke receipt observed at
+    `2026-09-30T17:00:21.626656+00:00` (2026-10-01 02:00:21 Korea time): one
+    daily-price row, `coverage_verified=false`, `persisted=false`. The policy
+    digest was independently matched locally without another API request.
+    Full receipt and verification limits: `docs/sources/kis-market-data.md`.
 - Confirmed market, cadence, paper-only broker boundary, and pilot budget.
 - Selected immutable champion/challenger improvement with human promotion.
 - Selected Qlib for research and LEAN for independent certification.
@@ -40,8 +57,9 @@ per-decision input bundle.
 - Implemented immutable `StrategySpec` lineage, bounded signal-parameter
     mutation, deterministic content digests, and append-only lifecycle events.
 - Generated `schemas/strategy/v1.schema.json` with a drift-check command.
-- Added typed, operator-owned source, risk, and promotion policies. All remain
-    `DRAFT`; source collection is default-deny pending legal approval.
+- Added typed, operator-owned source, risk, and promotion policies. The original
+    policies remain `DRAFT`; a separate explicitly approved KIS smoke policy
+    permits only the named one-off connection check.
 - Implemented immutable `PointInTimeRecord`, `DataSnapshot`, and historical
     universe-manifest contracts. A snapshot rejects future-observed records and
     duplicate source revisions, and has a deterministic content digest.
@@ -148,8 +166,10 @@ per-decision input bundle.
     and all existing certification/paper-session gates remain unchanged.
 - Complete source-specific legal review before enabling collection.
 - KIS public-document review is recorded in `docs/sources/kis-market-data.md`;
-    personal own-asset use and no third-party provision are documented. Retention
-    and account-specific terms remain unresolved; source policies stay DRAFT.
+    personal own-asset use and no third-party provision are documented. Operator
+    terms attestation and the one-off smoke receipt are now recorded. The default
+    source policy remains DRAFT; persistence and recurring collection need their
+    own reviewed scope and enforcement.
 - Restore Azure subscription access and validate region, SKU, quota, policy, and
   cost before infrastructure scaffolding; scaffold and deployment approvals are
   separate.
@@ -160,16 +180,20 @@ per-decision input bundle.
 - Azure subscription discovery returns HTTP 403. Region, SKU, quota, policy,
   and cost validation are blocked until access is restored.
 - Collection through source-specific connectors remains gated on documented
-    legal and license review; the KIS connector is tested offline only.
+    legal and license review. The KIS one-off smoke succeeded by user report;
+    a durable, normalized real-data dataset is still unavailable.
 
 ## Next Executable Step
 
-Use the milestone ledger in `docs/plans/predeployment.md`. Resolve KIS retention
-and account terms and obtain operator source-policy approval before an explicit
-local quotes-only smoke with privately configured credentials. No secret values
-belong in chat. Obtain approved real data and fixtures, then implement normalization
-and actual Qlib/LEAN certification. KIS paper, registry, authenticated operator
-services, isolated AI research, and deployment prerequisites remain unfinished.
+Define and approve persistence/broader-collection scope, retention enforcement
+and collection policy before another real-data collection. Implement a trusted
+calendar, corporate-action resolution and explicit revision/provenance mapping
+from normalized KIS batches to snapshots without backdating observed availability.
+The smoke did not retain a replayable source fixture, and the offline normalizer
+does not create one. Then build a verified real-data dataset and actual Qlib/LEAN
+certification. KIS paper,
+registry, authenticated operator services, isolated AI research and deployment
+prerequisites remain unfinished. See `docs/plans/predeployment.md`.
 
 ## Known Boundaries
 

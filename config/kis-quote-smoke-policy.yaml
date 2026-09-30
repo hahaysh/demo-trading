@@ -1,0 +1,35 @@
+api_version: ats/v1
+kind: SourceAllowlist
+metadata:
+  policy_id: kis-quote-smoke-policy
+  version: 0.1.0
+  status: APPROVED
+  owner: operator
+  approved_by: workspace-operator-via-explicit-chat-confirmation
+  approved_at: "2026-09-30T16:57:49.0968393+00:00"
+default_action: DENY
+private_or_mnpi_sources_allowed: false
+agent_editable: false
+sources:
+  - source_id: kis-market
+    category: MARKET
+    enabled: true
+    legal_review: APPROVED
+    rights:
+      classification: LICENSED
+      retention_days: 1
+      redistribution_allowed: false
+    rate_limit_per_minute: 1
+    notes: >-
+      Operator attested review of applicable KIS terms for personal own-asset use
+      and explicitly approved this connection check on 2026-10-01 Korea time.
+      Operator reported a permitted retention end date of 2027-09-30; this is an
+      operator attestation, not an independently verified provider license.
+      The one-day retention value is a stricter local maximum, not permission
+      to extend storage past that date. This smoke check persists no raw data.
+      Scope is token issuance and one daily-price request for 005930 on
+      2026-09-30. No order, account inquiry, redistribution, external AI upload,
+      bulk collection, or recurring job is authorized. The one-request-per-minute
+      rate is the operator-approved local cap, not an asserted provider quota.
+      This policy is for the named one-off smoke only; do not reuse it as a
+      general collection policy. The default source allowlist remains DRAFT.
