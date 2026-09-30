@@ -7,6 +7,11 @@ API paper environment. Strategies are immutable, risk checks are independent,
 and promotion always requires human approval. See
 `docs/plans/ats-master-plan.md` for scope and delivery gates.
 
+The staged live-trading development extension is approved in
+`docs/plans/live-autotrading-plan.md` and ADR 0003. This is not approval to send
+live orders. A separately gated production quotation client is now available;
+the existing order contracts remain paper-only.
+
 ## Local Setup
 
 Deployment readiness: **BLOCKED**. See `docs/plans/predeployment.md` for milestone
@@ -41,6 +46,45 @@ Raw bytes, normalized content hash, instrument, and session-close provenance are
 verified before use. The fixture JSON format is not a KIS/DART adapter. Native
 simulation uses supplied session opens and synthetic cost assumptions; calendar,
 corporate-action, multi-asset and independent-engine validation remain outstanding.
+
+## KIS Production Quotations Only
+
+`ats.data.kis.KisQuoteClient` supports token issuance and historical daily prices
+only. It cannot submit, amend or cancel orders, query accounts, or transfer funds.
+No account number is needed. Production keys are not intrinsically read-only;
+keep them outside research/strategy processes.
+
+Read `docs/sources/kis-market-data.md` before use. Personal own-asset use and
+no third-party provision are documented by KIS; retention and account-specific
+terms still require operator review. `config/source-allowlist.yaml` remains
+DRAFT and disabled. Implementation approval did not approve collection.
+
+This command is offline and does not read credentials:
+
+```powershell
+uv run python -m ats.data.kis --symbol 005930 --start 2026-09-01 --end 2026-09-30
+```
+
+After rights review, the operator supplies an approved source policy and sets
+`KIS_QUOTE_APP_KEY` and `KIS_QUOTE_APP_SECRET` in the local collector environment
+using their secret manager. Never paste values into chat or commit them. This
+module does not automatically load `.env` files. An explicit `--allow-network`
+enables the connection only after the policy gate passes; use `--policy` to select
+the operator-approved file. Do not enable the repository policy merely to test.
+
+The connection-check CLI prints only observation time, digests, row count and
+unverified-coverage status; it does not print prices, tokens, or write files.
+The Python API returns an in-memory `KisQuoteReceipt` with raw bytes, request,
+observation time and source-policy digest. The request covers at most 100 calendar
+days ending before today in Seoul. Prices are KRX daily, original/unadjusted.
+Missing rows are not synthesized and coverage is not claimed. This is not yet a
+KIS-to-snapshot normalization or backtest adapter.
+
+Run deterministic tests with fabricated responses and no broker credentials:
+
+```powershell
+uv run pytest tests/unit/data/test_kis.py -q
+```
 
 ## Data Contracts
 

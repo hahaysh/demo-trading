@@ -5,6 +5,7 @@ description = "Governed research and paper-trading system for Korean equities an
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "httpx>=0.28.1,<0.29",
     "pydantic>=2.11,<3",
     "pyyaml>=6.0,<7",
 ]

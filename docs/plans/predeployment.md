@@ -9,6 +9,12 @@ not a real-data backtest, independent certification, KIS paper session, producti
 risk service, or completed self-improvement pilot. The master plan and its human
 approval gates remain authoritative. No real source, policy, or strategy was approved.
 
+The live extension and ADR 0003 have user approval for staged implementation as
+of 2026-10-01, starting with production quotations. This does not approve live
+activation or deployment. A quotes-only client is implemented and verified with
+61 offline tests; source-policy/retention approval and real-account smoke remain
+outstanding. The original paper/certification gates are unchanged.
+
 ## Runnable Local Evidence
 
 ```powershell
@@ -42,6 +48,7 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 | Milestone | State | Required exit evidence |
 | --- | --- | --- |
 | Local verified price-to-report workflow | Implemented, synthetic only | Deterministic reports, normalized hashes, next-open fills, costs, bounded candidate lineage, negative tests |
+| Production KIS quotes-only connection | Implemented, offline tested; collection blocked | Approve source usage/retention and rate policy, configure secrets locally, explicitly verify token and quote responses; no order capability |
 | Approved real-data backtest | Blocked and incomplete | Documented source rights; recorded real fixtures; calendars, corporate actions, delistings, coverage and data quality; actual source adapters |
 | Qlib/LEAN independent certification | Not implemented | Both engines execute the exact candidate; approved comparison protocol/tolerances; golden order/return replay; untouched OOS and statistical gates |
 | KIS paper execution and reconciliation | Not implemented | Paper credentials entered outside chat; independent authenticated risk state; atomic reservations/idempotency; token/retry/fill/reconciliation and kill-switch drills |
@@ -79,8 +86,10 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 
 1. Source-specific usage and retention approvals plus legally usable recorded
    data. Existing `config/` policies remain DRAFT and must not be silently enabled.
-2. A KIS **paper-only** account and credentials configured locally/in a secret
-   store, never pasted into chat. No broker request has been sent.
+2. Production KIS credentials configured locally for the quotes-only collector,
+  after source-policy approval. Separate KIS paper credentials remain necessary
+  for paper-session validation. Never paste secrets into chat. No broker request
+  has been sent.
 3. Review of unresolved ADR 0002 semantics and quantitative certification criteria.
 4. Subscription access and explicit infrastructure-scaffolding consent. The prior
    HTTP 403 is recorded history; access has not been retested in this session.

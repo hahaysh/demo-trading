@@ -34,6 +34,19 @@ not modify a running strategy, risk controls, or broker code.
 - Generated code with broker credentials, unrestricted network access,
   arbitrary dependency installation, or permission to alter risk controls.
 
+## Approved Development Extension
+
+On 2026-10-01 the user approved `docs/plans/live-autotrading-plan.md` and ADR 0003
+for staged implementation, starting with production quotes-only connectivity.
+This extends the development scope, not permission to place live orders or deploy.
+Existing paper artifacts remain unchanged. Requirements are available cash only,
+no additional daily buy/count caps, retained loss/drawdown/concentration limits,
+and all eligible domestic ordinary stocks and ordinary ETFs. Versioned universe
+implementation, source-policy approval, prerequisite evidence, and a separate
+live activation decision remain outstanding. Quotes-only development uses offline
+fixtures until the source usage/retention gate is approved; no policy is enabled
+by implementation approval.
+
 ## Non-Negotiable Invariants
 
 1. A champion is immutable. Every challenger has a parent and unique version.

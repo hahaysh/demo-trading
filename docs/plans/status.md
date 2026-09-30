@@ -9,6 +9,10 @@ The runnable local milestone is now synthetic price normalization, native trend
 backtesting, bounded candidate comparison, and independent risk smoke checks.
 Overall deployment readiness remains BLOCKED; real integrations are not complete.
 
+The approved staged extension now includes a production KIS quotes-only client
+with offline transport tests. Collection remains blocked by DRAFT source policy
+and unresolved retention/account terms; no real token or price request was sent.
+
 Phase 1 primary contracts and local adapter boundaries implemented; real adapters
 and Phase 0 gates remain open. Phase 2 local as-of selection and artifact byte
 verification are implemented, including historical universe artifact resolution.
@@ -17,6 +21,15 @@ per-decision input bundle.
 
 ## Completed
 
+- Recorded user implementation approval of the live extension and ADR 0003,
+    retaining separate live activation and deployment gates.
+- Reviewed official KIS personal-use, token and daily-price documentation;
+    unresolved retention/usage questions are recorded without approving rights.
+- Implemented `ats.data.kis`: fixed production token/daily-price routes, policy
+    gating before network, memory-only tokens/receipts, throttling, bounded reads,
+    disabled redirects/proxies, sanitized errors and an offline-by-default CLI.
+    HTTPX is locked. 61 focused offline tests passed; actual broker access, price
+    normalization, persistent token coordination and collection are unverified.
 - Confirmed market, cadence, paper-only broker boundary, and pilot budget.
 - Selected immutable champion/challenger improvement with human promotion.
 - Selected Qlib for research and LEAN for independent certification.
@@ -121,7 +134,22 @@ per-decision input bundle.
 
 ## Approval Gates
 
+- Requested direction (2026-10-01): automatic live orders without per-order
+    confirmation, for personal use. The user approved the extension and ADR 0003
+    for staged implementation, beginning with production quotes-only connectivity.
+    Live activation and deployment are not approved.
+- Confirmed requirements: available cash only, no additional daily buy/count
+    caps, existing 1% daily-loss and 15% drawdown halts retained, and all eligible
+    domestic ordinary stocks/ordinary ETFs. The 10% per-symbol limit remains.
+    No fixed pilot budget or hand-picked symbol list is required by this proposal.
+- Implement the approved `docs/plans/live-autotrading-plan.md` and ADR 0003
+    without activating live execution or reinterpreting paper artifacts. Account,
+    champion, and activation evidence remain outstanding; operational policies
+    and all existing certification/paper-session gates remain unchanged.
 - Complete source-specific legal review before enabling collection.
+- KIS public-document review is recorded in `docs/sources/kis-market-data.md`;
+    personal own-asset use and no third-party provision are documented. Retention
+    and account-specific terms remain unresolved; source policies stay DRAFT.
 - Restore Azure subscription access and validate region, SKU, quota, policy, and
   cost before infrastructure scaffolding; scaffold and deployment approvals are
   separate.
@@ -131,12 +159,15 @@ per-decision input bundle.
 
 - Azure subscription discovery returns HTTP 403. Region, SKU, quota, policy,
   and cost validation are blocked until access is restored.
-- Source-specific connectors remain gated on documented legal and license review.
+- Collection through source-specific connectors remains gated on documented
+    legal and license review; the KIS connector is tested offline only.
 
 ## Next Executable Step
 
-Use the milestone ledger in `docs/plans/predeployment.md`. Obtain approved real
-data and recorded source fixtures, then implement source-specific normalization
+Use the milestone ledger in `docs/plans/predeployment.md`. Resolve KIS retention
+and account terms and obtain operator source-policy approval before an explicit
+local quotes-only smoke with privately configured credentials. No secret values
+belong in chat. Obtain approved real data and fixtures, then implement normalization
 and actual Qlib/LEAN certification. KIS paper, registry, authenticated operator
 services, isolated AI research, and deployment prerequisites remain unfinished.
 
