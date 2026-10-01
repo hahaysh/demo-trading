@@ -14,13 +14,15 @@ from ats.backtest.candidates import compare_candidates
 from ats.backtest.native import SimulationAssumptions, run_native_backtest
 from ats.data.artifacts import LocalArtifactResolver
 from ats.data.replay import InputReplayRequest
+from ats.data.storage import LocalPayloadStore, StoragePermit
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.execution import OrderIntent
 from ats.domain.governance import evidence_digest
-from ats.domain.policy import RiskPolicy
+from ats.domain.policy import RiskPolicy, SourceAllowlist
 from ats.domain.prices import DailyPrice
 from ats.domain.strategy import ArtifactRef, StrategySpec
 from ats.domain.universe import UniverseMembershipArtifact
+from ats.paper import PaperLedgerError, PaperOrderLedger
 from ats.risk.assessor import RiskState, assess_limit_intent
 
 
@@ -200,7 +202,95 @@ def create_synthetic_case(
     )
 
 
-def run_demo(output: Path) -> dict[str, object]:
+def _exercise_storage_and_paper(
+    output: Path,
+    request: InputReplayRequest,
+    intent: OrderIntent,
+    policy: RiskPolicy,
+    state: RiskState,
+    assessor: ArtifactRef,
+) -> dict[str, object]:
+    source = request.source_policy.sources[0]
+    storage_policy = SourceAllowlist.model_validate(
+        {
+            **request.source_policy.model_dump(),
+            "sources": (
+                {
+                    **source.model_dump(),
+                    "rights": {**source.rights.model_dump(), "retention_days": 1},
+                },
+            ),
+        }
+    )
+    permit = StoragePermit(
+        metadata=storage_policy.metadata,
+        source_id=source.source_id,
+        source_policy_digest=evidence_digest(storage_policy),
+        allow_persistence=True,
+        retention_days=1,
+        expires_at=request.cutoffs[-1] + timedelta(days=2),
+    )
+    store = LocalPayloadStore(output / "payloads.sqlite3")
+    resolver = LocalArtifactResolver(output)
+    for record in request.snapshot.records:
+        payload = resolver.read_raw_payload(record)
+        receipt = store.put(
+            payload,
+            observed_at=record.observed_at,
+            now=record.observed_at,
+            source_policy=storage_policy,
+            permit=permit,
+        )
+        restored = LocalPayloadStore(store.database).read(
+            receipt,
+            now=record.observed_at,
+            source_policy=storage_policy,
+            permit=permit,
+        )
+        if restored != payload:
+            raise ValueError("synthetic storage round trip failed")
+    purged = store.purge_expired(now=permit.expires_at)
+    ledger = PaperOrderLedger(output / "paper.sqlite3")
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=assessor)
+    ledger.claim_submission(
+        intent.account_id,
+        intent.client_order_id,
+        policy,
+        state,
+        at=state.observed_at,
+        assessor=assessor,
+    )
+    ledger.mark_unknown(intent.account_id, intent.client_order_id, at=state.observed_at)
+    restarted = PaperOrderLedger(ledger.database)
+    retry_blocked = False
+    try:
+        restarted.claim_submission(
+            intent.account_id,
+            intent.client_order_id,
+            policy,
+            state,
+            at=state.observed_at,
+            assessor=assessor,
+        )
+    except PaperLedgerError:
+        retry_blocked = True
+    if not retry_blocked:
+        raise ValueError("unresolved synthetic submission allowed a retry")
+    return {
+        "mode": "SYNTHETIC_BOUNDARY_SMOKE",
+        "raw_roundtrips": len(request.snapshot.records),
+        "expired_rows_removed": purged,
+        "paper_status": restarted.get(intent.account_id, intent.client_order_id).status,
+        "retry_blocked_after_restart": retry_blocked,
+        "broker_requests_sent": 0,
+        "external_engine_runs": 0,
+        "certified": False,
+    }
+
+
+def run_demo(
+    output: Path, *, exercise_data_to_paper: bool = False
+) -> dict[str, object]:
     output.mkdir(parents=True, exist_ok=False)
     request, strategy, opens, assumptions = create_synthetic_case(output)
     resolver = LocalArtifactResolver(output)
@@ -327,6 +417,10 @@ def run_demo(output: Path) -> dict[str, object]:
             "Operator API and deployment security/cost validation",
         ],
     }
+    if exercise_data_to_paper:
+        report["data_to_paper_smoke"] = _exercise_storage_and_paper(
+            output, request, intent, policy, state, strategy.code_artifact
+        )
     (output / "request.json").write_text(
         request.model_dump_json(indent=2), encoding="utf-8"
     )
@@ -344,6 +438,7 @@ def run_demo(output: Path) -> dict[str, object]:
 
 class Arguments(argparse.Namespace):
     output: str
+    exercise_data_to_paper: bool
 
 
 def main() -> int:
@@ -353,8 +448,13 @@ def main() -> int:
         required=True,
         help="New directory; existing paths are never overwritten.",
     )
+    parser.add_argument(
+        "--exercise-data-to-paper",
+        action="store_true",
+        help="Exercise synthetic storage and paper ledger boundaries without broker I/O.",
+    )
     args = parser.parse_args(namespace=Arguments())
-    run_demo(Path(args.output))
+    run_demo(Path(args.output), exercise_data_to_paper=args.exercise_data_to_paper)
     print(f"Synthetic offline workflow complete: {Path(args.output) / 'report.json'}")
     print(
         "Deployment readiness: BLOCKED. No broker, cloud, or promotion action performed."

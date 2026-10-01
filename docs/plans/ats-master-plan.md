@@ -77,6 +77,13 @@ required. Other ATS development is deferred until the operator reviews it.
 See `infra/github-actions.md` for configured identities, trust boundaries and the
 distinction between local implementation and an observed remote Actions run.
 
+The subsequent 2026-10-01 instruction resumes continuous data-to-paper development.
+Operational questions received no concrete choices or rights attestations, so the
+active boundary is local implementation and offline verification only. Actual data
+collection/storage, scheduled execution, account access, paper submission, commits
+and pushes are not newly authorized. See `docs/plans/data-to-paper-plan.md` for
+the execution boundary, progress evidence and unresolved operational gates.
+
 1. A champion is immutable. Every challenger has a parent and unique version.
 2. Only an approved champion may produce paper order intents.
 3. Strategy output is advisory until an independent risk service approves it.

@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!Probe.csproj
+!Program.cs
+!packages.lock.json

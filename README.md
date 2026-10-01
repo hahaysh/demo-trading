@@ -70,6 +70,16 @@ uv run python -m ats.demo --output .local/my-new-run
 증권사나 클라우드에 접속하지 않으며 전략 승격이나 정책 변경도 하지 않습니다.
 보고서에는 `deployment_ready=false`, `promoted=false`가 명시됩니다.
 
+원문 보존·만료와 영속 paper 장부의 재시작 경계를 함께 검사하려면 다음 opt-in 예제를 실행합니다.
+실제 API나 계좌에 연결하지 않으며, 전체 운영 파이프라인 완료를 뜻하지 않습니다.
+
+```powershell
+uv run --frozen python -m ats.demo --output .local/my-data-paper-run --exercise-data-to-paper
+```
+
+실제 Qlib 피처/LEAN 지표의 별도 격리 smoke는 [연구 안내](research/README.md),
+전체 구현 진행과 남은 조건은 [연속 개발 기록](docs/plans/data-to-paper-plan.md)에 있습니다.
+
 가격은 정확한 소수 값으로 처리하며 시가·고가·저가·종가(OHLC) 관계와 정수 거래량을
 검사합니다. 원문 바이트, 정규화 해시, 종목과 종료 시각도 확인합니다.
 이 합성 JSON 형식 자체가 KIS/DART 어댑터는 아닙니다. 거래일·기업행사·다종목 처리와

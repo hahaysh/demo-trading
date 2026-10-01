@@ -6,6 +6,14 @@ Last updated: 2026-10-01
 
 ## Active Milestone
 
+최신 작업은 [데이터부터 모의주문까지의 연속 개발](data-to-paper-plan.md)입니다.
+로컬 원문 저장·보존, 수집 계획·제공 달력 검증, 영속 paper 예약/대사 장부와 opt-in 합성
+통합 검사를 구현했습니다. 실제 Qlib 피처/LEAN 지표를 네트워크 없는 컨테이너에서 실행해
+5행·신호 일치를 확인했지만, 전체 엔진 어댑터·KRX backtest·실제 수집·paper 연결은 미완료입니다.
+현재 로컬 전체 검사 **630 passed, 2 skipped**, 린트·포맷·타입·스키마·lock 검사가 통과했습니다.
+단계별 재질문 없이 개발을 진행했으며 실제 수집·계좌 접근·주문·새 커밋·푸시는 하지 않았습니다.
+아래 과거 마일스톤/CI 수치는 해당 시점 기록이며 이번 수정의 원격 CI 증거가 아닙니다.
+
 Working toward predeployment exit gates in `docs/plans/predeployment.md`.
 The runnable local milestone is now synthetic price normalization, native trend
 backtesting, bounded candidate comparison, and independent risk smoke checks.
@@ -187,8 +195,9 @@ per-decision input bundle.
     로그인 비밀과 인증 정책은 변경하지 않았습니다. PR·수동 실행·실제 복구의 별도 원격 시험과
     이번 자동 게시 후 본인 브라우저 회귀 검사는 미수행입니다. Node 20 액션의 Node 24 강제 실행
     경고와 ubuntu-latest 이미지 변경 예고는 유지보수 항목으로 남깁니다.
-    반복 합성 게시에 한한 타 테넌트 검사 예외 확대를 승인받았습니다. 나머지 ATS 개발은
-    사용자 검토 전까지 보류합니다. 상세 범위·ID·복구 절차: `infra/github-actions.md`.
+    반복 합성 게시에 한한 타 테넌트 검사 예외 확대를 승인받았습니다. 당시 나머지 ATS 개발은
+    사용자 검토 전까지 보류했으나, 후속 연속 개발 요청으로 로컬 개발을 재개했습니다.
+    상세 범위·ID·복구 절차: `infra/github-actions.md`.
 - 2026-10-01 후속 승인 후 Azure for MCT / `atsview-rg` / Korea Central에 Windows F1
     플랜과 사이트, 본인 전용 인증 및 게시 정책을 배포했습니다. 최종 what-if는 생성 6개,
     수정·삭제 0개였고 ARM 배포와 하위 리소스 5개가 `Succeeded`입니다. 실제 보안 설정
@@ -279,15 +288,18 @@ The first main-push CI/CD run, OIDC exchange and synthetic-only publication are
 verified by run 36865676575 at commit 3293182. Do not repeat provisioning or
 credential creation. Additional CI/CD runtime maintenance, PR/manual-trigger and
 failure-recovery tests require a scoped follow-up. Other ATS implementation is
-paused pending the operator's review. The following data work is the later ATS priority.
+resumed for local development by the subsequent continuous-task request. See
+`docs/plans/data-to-paper-plan.md` for the current implementation and observed tests.
 
 Define and approve persistence/broader-collection scope, retention enforcement
 and collection policy before another real-data collection. Implement a trusted
 calendar, corporate-action resolution and explicit revision/provenance mapping
 from normalized KIS batches to snapshots without backdating observed availability.
-The smoke did not retain a replayable source fixture, and the offline normalizer
-does not create one. Then build a verified real-data dataset and actual Qlib/LEAN
-certification. KIS paper,
+The historical production smoke did not retain a replayable source fixture. New local
+storage/ingestion primitives do not yet build normalized snapshot manifests. Fixed
+Qlib-feature/LEAN-indicator container probes pass, but full engine evaluation adapters
+remain unfinished. Then build a verified real-data dataset and actual Qlib/LEAN
+certification. KIS paper transport,
 registry, authenticated operator services, isolated AI research and deployment
 prerequisites remain unfinished. See `docs/plans/predeployment.md`.
 
@@ -295,8 +307,10 @@ prerequisites remain unfinished. See `docs/plans/predeployment.md`.
 
 - The new native smoke evaluator calculates synthetic returns but is not Qlib/LEAN
     certification, a complete KRX execution model, or a production portfolio engine.
-    Numerical risk checks operate on caller-supplied trusted state and do not
-    provide atomic submission/reservations or authenticated account access.
+    Numerical risk checks operate on caller-supplied trusted state. The new paper
+    ledger adds local transactional reservations and submission claims, not an atomic
+    broker transaction or authenticated account access. Detailed new storage, calendar,
+    engine and ledger limitations are recorded in `docs/plans/data-to-paper-plan.md`.
 - Local replay materializes data bundles only; it does not simulate a strategy,
     calculate returns, or execute an engine. Request cutoffs must be nonempty,
     aware, unique, and increasing; no sorting or deduplication silently repairs them.

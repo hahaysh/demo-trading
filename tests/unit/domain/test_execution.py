@@ -1,5 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -9,6 +11,7 @@ from ats.domain.execution import OrderIntent, RiskCheck, RiskDecision
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import RiskPolicy
 from ats.domain.strategy import ArtifactRef
+from ats.paper import PaperBrokerUpdate, PaperLedgerError, PaperOrderLedger
 from ats.risk.assessor import RiskState, assess_limit_intent
 
 CREATED = datetime(2026, 9, 30, 7, tzinfo=UTC)
@@ -17,6 +20,289 @@ EXPIRY = CREATED + timedelta(minutes=5)
 DIGEST = "sha256:" + "a" * 64
 OTHER_DIGEST = "sha256:" + "b" * 64
 ARTIFACT = ArtifactRef(artifact_id="test-evidence", version="1.0.0", digest=DIGEST)
+
+
+def test_paper_ledger_claim_is_durable_and_never_automatically_retried(
+    tmp_path: Path,
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    prepared = ledger.prepare(
+        intent, policy, state, at=state.observed_at, assessor=ARTIFACT
+    )
+    assert (
+        ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+        == prepared
+    )
+    claimed = ledger.claim_submission(
+        intent.account_id,
+        intent.client_order_id,
+        policy,
+        state,
+        at=state.observed_at,
+        assessor=ARTIFACT,
+    )
+    assert claimed.status.value == "SUBMITTING"
+    restarted = PaperOrderLedger(ledger.database)
+    with pytest.raises(PaperLedgerError, match="already claimed"):
+        restarted.claim_submission(
+            intent.account_id,
+            intent.client_order_id,
+            policy,
+            state,
+            at=state.observed_at,
+            assessor=ARTIFACT,
+        )
+    restarted.mark_unknown(
+        intent.account_id, intent.client_order_id, at=state.observed_at
+    )
+    assert (
+        restarted.get(intent.account_id, intent.client_order_id).status.value
+        == "UNKNOWN"
+    )
+    other = OrderIntent.model_validate(
+        {**intent.model_dump(), "intent_id": UUID(int=9), "client_order_id": "other"}
+    )
+    with pytest.raises(PaperLedgerError, match="halted"):
+        restarted.prepare(other, policy, state, at=state.observed_at, assessor=ARTIFACT)
+
+
+def test_paper_ledger_reserves_pending_exposure_atomically(tmp_path: Path) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    first = _intent(policy)
+    ledger.prepare(first, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    second = OrderIntent.model_validate(
+        {**first.model_dump(), "intent_id": UUID(int=9), "client_order_id": "other"}
+    )
+    with pytest.raises(ValueError, match="denies"):
+        PaperOrderLedger(ledger.database).prepare(
+            second, policy, state, at=state.observed_at, assessor=ARTIFACT
+        )
+
+
+def test_concurrent_paper_reservations_do_not_both_pass(tmp_path: Path) -> None:
+    database = tmp_path / "paper.sqlite3"
+    policy, state = _policy(), _risk_state()
+
+    def prepare(number: int) -> bool:
+        intent = OrderIntent.model_validate(
+            {
+                **_intent(policy).model_dump(),
+                "intent_id": UUID(int=number),
+                "client_order_id": f"concurrent-{number}",
+            }
+        )
+        try:
+            PaperOrderLedger(database).prepare(
+                intent, policy, state, at=state.observed_at, assessor=ARTIFACT
+            )
+        except ValueError:
+            return False
+        return True
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(prepare, (1, 2)))
+    assert sorted(outcomes) == [False, True]
+
+
+def test_unfinished_submission_blocks_new_work_after_restart(tmp_path: Path) -> None:
+    database = tmp_path / "paper.sqlite3"
+    ledger = PaperOrderLedger(database)
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    ledger.claim_submission(
+        intent.account_id,
+        intent.client_order_id,
+        policy,
+        state,
+        at=state.observed_at,
+        assessor=ARTIFACT,
+    )
+    other = OrderIntent.model_validate(
+        {
+            **intent.model_dump(),
+            "intent_id": UUID(int=9),
+            "client_order_id": "new-after-crash",
+        }
+    )
+    with pytest.raises(PaperLedgerError, match="pending submission"):
+        PaperOrderLedger(database).prepare(
+            other, policy, state, at=state.observed_at, assessor=ARTIFACT
+        )
+
+
+def test_paper_ledger_partial_fill_and_cancel_preserve_freshness_gate(
+    tmp_path: Path,
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    ledger.claim_submission(
+        intent.account_id,
+        intent.client_order_id,
+        policy,
+        state,
+        at=state.observed_at,
+        assessor=ARTIFACT,
+    )
+    partial = PaperBrokerUpdate(
+        account_id=intent.account_id,
+        client_order_id=intent.client_order_id,
+        status="PARTIALLY_FILLED",
+        filled_quantity=3,
+        broker_order_id="fixture-broker-id",
+        observed_at=state.observed_at,
+        evidence=ARTIFACT,
+    )
+    record = ledger.reconcile(partial)
+    assert record.remaining_quantity == 7
+    assert ledger.reconcile(partial) == record
+    canceled = partial.model_copy(
+        update={
+            "status": "CANCELED",
+            "evidence": ARTIFACT.model_copy(update={"digest": OTHER_DIGEST}),
+        }
+    )
+    assert ledger.reconcile(canceled).remaining_quantity == 0
+    other = OrderIntent.model_validate(
+        {**intent.model_dump(), "intent_id": UUID(int=9), "client_order_id": "other"}
+    )
+    with pytest.raises(PaperLedgerError, match="fresh reconciled"):
+        ledger.prepare(other, policy, state, at=state.observed_at, assessor=ARTIFACT)
+
+
+def test_paper_ledger_rejects_conflicting_ids_and_unclaimed_reconciliation(
+    tmp_path: Path,
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    altered = OrderIntent.model_validate({**intent.model_dump(), "quantity": 1})
+    with pytest.raises(PaperLedgerError, match="conflicts"):
+        ledger.prepare(altered, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    with pytest.raises(PaperLedgerError, match="invalid"):
+        ledger.reconcile(
+            PaperBrokerUpdate(
+                account_id=intent.account_id,
+                client_order_id=intent.client_order_id,
+                status="FILLED",
+                filled_quantity=intent.quantity,
+                broker_order_id="fixture-broker-id",
+                observed_at=state.observed_at,
+                evidence=ARTIFACT,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "submitted,unknown", [(False, False), (True, False), (True, True)]
+)
+def test_only_unsubmitted_expired_orders_release_reservations(
+    tmp_path: Path, submitted: bool, unknown: bool
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    if submitted:
+        ledger.claim_submission(
+            intent.account_id,
+            intent.client_order_id,
+            policy,
+            state,
+            at=state.observed_at,
+            assessor=ARTIFACT,
+        )
+    if unknown:
+        ledger.mark_unknown(
+            intent.account_id, intent.client_order_id, at=state.observed_at
+        )
+    restarted = PaperOrderLedger(ledger.database)
+    assert (
+        restarted.expire_prepared(
+            intent.account_id, at=intent.expires_at - timedelta(microseconds=1)
+        )
+        == 0
+    )
+    assert restarted.expire_prepared(intent.account_id, at=intent.expires_at) == (
+        0 if submitted else 1
+    )
+    record = restarted.get(intent.account_id, intent.client_order_id)
+    assert record.remaining_quantity == (intent.quantity if submitted else 0)
+    if not submitted:
+        assert record.status.value == "EXPIRED"
+    assert restarted.expire_prepared(intent.account_id, at=intent.expires_at) == 0
+
+
+def test_submission_claim_rechecks_fresh_risk_and_preserves_unclaimed_state_on_denial(
+    tmp_path: Path,
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    for at, checked in (
+        (state.valid_until, state),
+        (state.observed_at, state.model_copy(update={"kill_switch_active": True})),
+    ):
+        with pytest.raises(ValueError, match="expired|denies"):
+            ledger.claim_submission(
+                intent.account_id,
+                intent.client_order_id,
+                policy,
+                checked,
+                at=at,
+                assessor=ARTIFACT,
+            )
+        assert (
+            ledger.get(intent.account_id, intent.client_order_id).status.value
+            == "PREPARED"
+        )
+
+
+@pytest.mark.parametrize(
+    "status,filled", [("FILLED", 10), ("REJECTED", 0), ("CANCELED", 0)]
+)
+def test_terminal_reconciliation_is_idempotent_and_rejects_changed_evidence(
+    tmp_path: Path, status: str, filled: int
+) -> None:
+    ledger = PaperOrderLedger(tmp_path / "paper.sqlite3")
+    policy, state = _policy(), _risk_state()
+    intent = _intent(policy)
+    ledger.prepare(intent, policy, state, at=state.observed_at, assessor=ARTIFACT)
+    ledger.claim_submission(
+        intent.account_id,
+        intent.client_order_id,
+        policy,
+        state,
+        at=state.observed_at,
+        assessor=ARTIFACT,
+    )
+    update = PaperBrokerUpdate.model_validate(
+        {
+            "account_id": intent.account_id,
+            "client_order_id": intent.client_order_id,
+            "status": status,
+            "filled_quantity": filled,
+            "broker_order_id": "synthetic-terminal",
+            "observed_at": state.observed_at,
+            "evidence": ARTIFACT,
+        }
+    )
+    record = ledger.reconcile(update)
+    assert record.remaining_quantity == 0
+    assert ledger.reconcile(update) == record
+    with pytest.raises(PaperLedgerError):
+        ledger.reconcile(
+            update.model_copy(
+                update={"observed_at": state.observed_at + timedelta(seconds=1)}
+            )
+        )
 
 
 def _policy() -> RiskPolicy:

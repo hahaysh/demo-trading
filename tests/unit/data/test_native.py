@@ -265,6 +265,26 @@ def test_demo_is_reproducible_and_does_not_claim_deployment_readiness(
     assert (first / "report.json").read_bytes() == before
 
 
+def test_data_to_paper_smoke_is_offline_reproducible_and_not_certified(
+    tmp_path: Path,
+) -> None:
+    first = run_demo(tmp_path / "first", exercise_data_to_paper=True)
+    second = run_demo(tmp_path / "second", exercise_data_to_paper=True)
+    assert first == second
+    assert first["data_to_paper_smoke"] == {
+        "mode": "SYNTHETIC_BOUNDARY_SMOKE",
+        "raw_roundtrips": 5,
+        "expired_rows_removed": 5,
+        "paper_status": "UNKNOWN",
+        "retry_blocked_after_restart": True,
+        "broker_requests_sent": 0,
+        "external_engine_runs": 0,
+        "certified": False,
+    }
+    assert first["deployment_ready"] is False
+    assert first["promoted"] is False
+
+
 @pytest.mark.parametrize("lookbacks", [(3, 3), (3, 4, 5), (), (True,), (100,)])
 def test_candidate_search_rejects_budget_duplicates_and_unauthorized_values(
     tmp_path: Path, lookbacks: tuple[int, ...]
