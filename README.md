@@ -1,24 +1,24 @@
 # Demo Trading
 
-Governed research and paper-trading software for Korean equities and ETFs.
+국내 주식과 ETF를 대상으로 전략을 연구하고 검증하는 자동매매 프로젝트입니다.
+사용자가 읽는 설명과 화면은 한국어를 우선하며, 명령어·데이터 형식·기술 식별자는
+호환성을 위해 영어로 유지합니다.
 
-The pilot is intentionally limited to backtesting and the Korea Investment Open
-API paper environment. Strategies are immutable, risk checks are independent,
-and promotion always requires human approval. See
-`docs/plans/ats-master-plan.md` for scope and delivery gates.
+초기 검증 범위는 백테스트와 한국투자증권 Open API 모의투자입니다.
+전략은 버전별로 고정하며, 위험 검사는 독립적으로 수행하고 운영 전략 승격에는
+사람의 승인이 필요합니다. 범위와 완료 조건은 `docs/plans/ats-master-plan.md`에 있습니다.
 
-The staged live-trading development extension is approved in
-`docs/plans/live-autotrading-plan.md` and ADR 0003. This is not approval to send
-live orders. A separately gated production quotation client is now available;
-the existing order contracts remain paper-only.
+`docs/plans/live-autotrading-plan.md`와 ADR 0003에 따라 실거래 기능의 단계적 구현은
+승인됐지만, 실제 주문 전송이 승인된 것은 아닙니다. 실전 시세 조회는 별도 정책으로
+제한하며, 기존 주문 계약은 여전히 모의투자 전용입니다.
 
 ## Local Setup
 
-Deployment readiness: **BLOCKED**. See `docs/plans/predeployment.md` for milestone
-status, real integration gaps, and approval requirements. The synthetic workflow
-below is executable; it is not a real-data or KIS certification result.
+배포 준비 상태: **미완료(BLOCKED)**. 남은 구현과 승인 조건은
+`docs/plans/predeployment.md`에서 확인할 수 있습니다. 아래 합성 데이터 예제는
+로컬에서 실행할 수 있지만, 실제 투자 성과나 KIS 운영 인증 결과는 아닙니다.
 
-Prerequisites: `uv` and Python 3.11. `uv` can install the pinned Python version.
+준비물은 `uv`와 Python 3.11입니다. 다음 명령으로 환경을 구성하고 검사를 실행합니다.
 
 ```powershell
 uv python install 3.11
@@ -28,59 +28,83 @@ uv run pyright
 uv run pytest
 ```
 
+## Read-Only Research Dashboard
+
+기존 합성 실행 보고서로 읽기 전용 HTML 대시보드를 생성합니다.
+
+```powershell
+uv run python -m ats.dashboard --report .local/predeploy-20261001-final/report.json --evidence docs/sources/kis-market-data.md --output .local/dashboard/index.html
+```
+
+생성된 HTML을 브라우저에서 바로 열면 됩니다. 서버, Node 빌드, 외부 리소스,
+증권사 키나 클라우드 연결은 필요하지 않습니다. 기존 파일은 덮어쓰지 않으므로
+다시 생성할 때는 새 출력 파일명을 지정해 주세요.
+처음 내려받은 저장소라면 아래 합성 실행을 먼저 수행한 뒤, 생성된 디렉터리의
+`report.json`을 `--report`로 지정합니다. `--evidence`는 선택 사항입니다.
+
+화면에서는 실험 선택, 평가자산·낙폭 차트와 데이터 표, 후보 전략 비교,
+CSV 미리보기·다운로드, 시뮬레이션 체결 필터, 위험 검사와 보고서 해시를 확인합니다.
+모든 값은 선택한 보고서에서 가져옵니다. 화면의 금액은 표시용으로 반올림되며,
+포함된 보고서와 CSV의 원본 소수 문자열은 유지됩니다. 회계 처리를 위한 API는 아닙니다.
+CSV 열 이름과 실험 식별값은 기존 영어 형식을 유지합니다.
+
+합성 성과·위험 시나리오와 사용자가 보고한 과거 KIS 조회 기록을 구분해서 표시합니다.
+KIS 항목은 현재 연결 상태가 아니며, 미충족 조건도 보고서 생성 당시의 기록입니다.
+화면 생성은 보고서 구조를 검사할 뿐, 수익률·출처·전략 승격·성과 인증을 보증하지 않습니다.
+실주문을 실행하거나 제어하는 기능은 없습니다.
+
+화면 생성기는 지정한 보고서와 증거 파일만 읽으며 원본을 수정하지 않습니다.
+CSP로 네트워크 연결을 차단하고, 포함된 JSON이 스크립트 경계를 벗어나지 않도록 처리합니다.
+다만 HTML 안에 보고서가 포함되고 접근 제어가 없으므로 개인 보고서를 공개 호스팅에
+올리지 마세요. 로그인, 보고서 배포 서비스, Azure 준비·배포는 별도 승인 대상입니다.
+
 ## Runnable Synthetic Workflow
 
 ```powershell
 uv run python -m ats.demo --output .local/my-new-run
 ```
 
-Use a new directory each run. The workflow writes verified synthetic raw artifacts,
-replay/strategy inputs, risk state, and `report.json`. It normalizes daily prices,
-runs a next-session-open trend baseline, compares three immutable parameter
-descendants, and exercises numerical risk acceptance/kill-switch denial. It never
-connects to a broker or cloud service, promotes a candidate, or modifies policies.
-The report explicitly records `deployment_ready=false` and `promoted=false`.
+매번 새 출력 디렉터리를 사용하세요. 합성 원본, 재현 실행·전략 입력, 위험 상태와
+`report.json`이 생성됩니다. 일봉 정규화, 다음 거래일 시가 기준 추세 전략,
+파라미터 후보 3개 비교, 위험 검사 허용·긴급 중단 거절을 검증합니다.
+증권사나 클라우드에 접속하지 않으며 전략 승격이나 정책 변경도 하지 않습니다.
+보고서에는 `deployment_ready=false`, `promoted=false`가 명시됩니다.
 
-Prices use positive finite decimals with OHLC consistency and integer volume.
-Raw bytes, normalized content hash, instrument, and session-close provenance are
-verified before use. The fixture JSON format is not a KIS/DART adapter. Native
-simulation uses supplied session opens and synthetic cost assumptions; calendar,
-corporate-action, multi-asset and independent-engine validation remain outstanding.
+가격은 정확한 소수 값으로 처리하며 시가·고가·저가·종가(OHLC) 관계와 정수 거래량을
+검사합니다. 원문 바이트, 정규화 해시, 종목과 종료 시각도 확인합니다.
+이 합성 JSON 형식 자체가 KIS/DART 어댑터는 아닙니다. 거래일·기업행사·다종목 처리와
+독립 엔진 검증은 별도이며, 예제는 제공된 거래 시각과 합성 비용 가정을 사용합니다.
 
 ## KIS Production Quotations Only
 
-`ats.data.kis.KisQuoteClient` supports token issuance and historical daily prices
-only. It cannot submit, amend or cancel orders, query accounts, or transfer funds.
-No account number is needed. Production keys are not intrinsically read-only;
-keep them outside research/strategy processes.
+`ats.data.kis.KisQuoteClient`는 토큰 발급과 과거 일봉 조회만 지원합니다.
+주문·정정·취소·계좌 조회·이체 기능은 없으며 계좌번호도 필요하지 않습니다.
+실전키 자체가 읽기 전용인 것은 아니므로 연구·전략 실행 환경과 분리해서 보관하세요.
 
-Read `docs/sources/kis-market-data.md` before use. Personal own-asset use and
-no third-party provision are documented by KIS; retention and account-specific
-terms still require operator review. `config/source-allowlist.yaml` remains
-DRAFT and disabled. Implementation approval did not approve collection.
+사용 전 `docs/sources/kis-market-data.md`를 확인하세요. KIS는 개인의 자기 자산 투자 목적
+이용과 제3자 제공 금지를 안내합니다. 계정별 약관·보존 조건은 운영자가 확인해야 합니다.
+별도 승인된 1회 조회 검증은 완료됐지만 기본 `config/source-allowlist.yaml`은
+여전히 DRAFT·비활성입니다. 이 승인으로 반복·대량 수집까지 허용되는 것은 아닙니다.
 
-This command is offline and does not read credentials:
+다음 명령은 기본 오프라인 동작이며 키를 읽지 않습니다.
 
 ```powershell
 uv run python -m ats.data.kis --symbol 005930 --start 2026-09-01 --end 2026-09-30
 ```
 
-After rights review, the operator supplies an approved source policy and sets
-`KIS_QUOTE_APP_KEY` and `KIS_QUOTE_APP_SECRET` in the local collector environment
-using their secret manager. Never paste values into chat or commit them. This
-module does not automatically load `.env` files. An explicit `--allow-network`
-enables the connection only after the policy gate passes; use `--policy` to select
-the operator-approved file. Do not enable the repository policy merely to test.
+이용 조건 확인 후 승인된 소스 정책을 준비하고, 수집용 로컬 환경에
+`KIS_QUOTE_APP_KEY`와 `KIS_QUOTE_APP_SECRET`을 설정합니다. 키를 채팅에 붙여넣거나
+커밋하지 마세요. 이 모듈은 `.env`를 자동으로 읽지 않습니다.
+`--policy`로 승인된 파일을 지정하고 `--allow-network`를 명시해도 정책 검사를
+통과해야만 연결됩니다. 단순 테스트를 위해 기본 정책을 임의 활성화하지 마세요.
 
-The connection-check CLI prints only observation time, digests, row count and
-unverified-coverage status; it does not print prices, tokens, or write files.
-The Python API returns an in-memory `KisQuoteReceipt` with raw bytes, request,
-observation time and source-policy digest. The request covers at most 100 calendar
-days ending before today in Seoul. Prices are KRX daily, original/unadjusted.
-Missing rows are not synthesized and coverage is not claimed. This is not yet a
-KIS-to-snapshot normalization or backtest adapter.
+연결 검증 CLI는 관측 시각·해시·행 수·기간 완전성 미검증 상태만 출력하며,
+가격·토큰을 출력하거나 파일을 저장하지 않습니다. Python API는 원문, 요청 조건,
+관측 시각과 정책 해시를 담은 메모리상의 `KisQuoteReceipt`를 반환합니다.
+한국 시간 기준 오늘 이전의 최대 100일 구간을 조회하며 KRX 일봉 원주가를 사용합니다.
+누락된 행을 만들거나 기간 완전성을 보증하지 않습니다. 저장·스냅샷·백테스트 연결은 별도입니다.
 
-Run deterministic tests with fabricated responses and no broker credentials:
+증권사 키 없이 가짜 응답으로 테스트하려면 다음 명령을 사용합니다.
 
 ```powershell
 uv run pytest tests/unit/data/test_kis.py -q
@@ -88,14 +112,13 @@ uv run pytest tests/unit/data/test_kis.py -q
 
 ### KIS Daily-Price Normalization
 
-`ats.data.prices.normalize_kis_daily_prices` converts an in-memory quote receipt
-to immutable `DailyPrice` bars plus separate corporate-action flags. It performs
-no network, credential access or file writes. The existing local fixture parser
-and published price schema are unchanged.
+`ats.data.prices.normalize_kis_daily_prices`는 조회 결과를 고정된 `DailyPrice`와
+기업행사 표시로 변환합니다. 네트워크·키 접근·파일 저장은 하지 않으며,
+기존 합성 데이터 파서와 공개 가격 스키마도 변경하지 않습니다.
 
-KIS supplies a session date, not a verified closing timestamp. Supply a mapping
-from session date to timezone-aware close time from a trusted calendar; missing
-dates fail rather than defaulting to 15:30. Returned times are normalized to UTC.
+KIS 응답의 거래일만으로 실제 종료 시각을 추정하지 않습니다. 신뢰할 수 있는 거래일
+정보에서 시간대가 포함된 종료 시각을 제공해야 하며, 빠진 날짜를 15:30으로 채우지 않습니다.
+반환 시각은 UTC로 정규화합니다.
 
 ```python
 from ats.data.prices import normalize_kis_daily_prices
@@ -104,26 +127,25 @@ normalized = normalize_kis_daily_prices(receipt, session_closes=verified_session
 review_required = any(bar.requires_review for bar in normalized.bars)
 ```
 
-The example assumes an existing receipt and independently verified calendar.
-When `review_required` is true, stop downstream admission until review is resolved.
-Prices use exact decimals; volume must be an unsigned integer string. Invalid
-OHLC, missing fields, duplicate JSON keys/sessions, wrong instruments, invalid or
-out-of-request dates and `mod_yn=Y` reject the entire response. Empty responses or
-missing days do not imply verified coverage and are not filled in.
+위 예제는 조회 결과와 검증된 거래일 정보가 있다는 전제입니다.
+`review_required`가 참이면 검토를 마치기 전까지 후속 연구 입력으로 사용하지 마세요.
+가격은 정확한 소수, 거래량은 음수가 아닌 정수 문자열을 받습니다. 잘못된 OHLC,
+누락 필드, 중복 키·날짜, 종목 불일치, 범위 밖 날짜, `mod_yn=Y`는 응답 전체를 거절합니다.
+빈 응답이나 누락된 날짜를 보정하지 않으며, 기간 완전성이 검증됐다고 간주하지 않습니다.
 
-The adapter preserves `flng_cls_code`, `prtt_rate`, `revl_issu_reas` and `mod_yn`
-as typed metadata. Unknown codes fail; action flags, blank ratio/revaluation/open
-indicators and zero volume require review. It never applies a split or dividend
-adjustment. The review property must be honored by downstream code; it is not an
-implemented corporate-action engine or automatic admission gate.
+`flng_cls_code`, `prtt_rate`, `revl_issu_reas`, `mod_yn`은 별도 메타데이터로 보존합니다.
+알 수 없는 코드는 거절하고 기업행사 표시, 비어 있는 비율·재평가·시가 표시와 거래량 0은
+검토 대상으로 표시합니다. 분할·배당 조정을 자동 적용하지 않습니다.
+후속 처리에서 이 표시를 확인해야 하며 기업행사 처리 엔진이나 자동 승인 기능은 아닙니다.
 
-The batch retains observation time, request, policy digest, raw-byte digest and
-normalizer version. Its digest includes corporate-action flags, unlike the
-standalone price digest. This does not authenticate source bytes or policy claims,
-verify the supplied calendar, grant storage rights, or produce point-in-time
-snapshot records. All new tests use fabricated responses, not the unsaved smoke.
+정규화 결과에는 관측 시각, 요청, 정책·원문 해시와 정규화 버전이 남습니다.
+전체 결과 해시는 가격 해시와 달리 기업행사 표시까지 포함합니다.
+다만 출처 인증, 정책 승인 진위, 거래일 검증, 저장 권한이나 시점별 스냅샷을 제공하지는 않습니다.
+정규화 테스트는 저장되지 않은 실제 조회 원문이 아니라 가짜 응답을 사용합니다.
 
 ## Data Contracts
+
+아래는 개발용 상세 계약과 검증 규칙입니다. 기술적인 설명과 식별자는 영어로 유지합니다.
 
 `MarketEvent` represents a derived observation, not an order. It carries a
 versioned producer, confidence, availability timestamp, snapshot reference, and

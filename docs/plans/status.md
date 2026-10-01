@@ -2,12 +2,22 @@
 
 Last updated: 2026-10-01
 
+새 작업 시작 전 [프로젝트 인수인계와 점검표](project-handoff.md)를 먼저 확인합니다.
+
 ## Active Milestone
 
 Working toward predeployment exit gates in `docs/plans/predeployment.md`.
 The runnable local milestone is now synthetic price normalization, native trend
 backtesting, bounded candidate comparison, and independent risk smoke checks.
 Overall deployment readiness remains BLOCKED; real integrations are not complete.
+
+A local read-only dashboard now visualizes an existing synthetic report and a
+separately labeled historical KIS smoke receipt. Export with `python -m ats.dashboard`
+and open the HTML directly. The local exporter uses no credentials or live order
+control. The separately approved Azure F1 synthetic preview is now published
+with owner-restricted authentication. The operator accepted the unperformed
+different-tenant user test for this synthetic artifact only; full ATS readiness
+and live trading remain blocked.
 
 The approved staged extension now includes a production KIS quotes-only client
 with offline transport tests and a user-reported successful one-off production
@@ -24,6 +34,28 @@ per-decision input bundle.
 
 ## Completed
 
+- Applied the operator's Korean-first presentation preference to README usage
+    explanations and dashboard labels, descriptions, accessibility text and KST
+    timestamps. Technical documentation, parser-dependent headings, CLI commands,
+    internal values and the English CSV format remain unchanged. The project
+    instructions now preserve this distinction rather than requiring English
+    for all user-facing content.
+- Exported `.local/dashboard/korean.html` without overwriting the earlier view.
+    Seven dashboard tests passed, including exact embedded-report preservation;
+    types, lint and document diagnostics passed. Browser checks verified Korean
+    candidate/side/risk displays, unchanged CSV headers and five rows, matching
+    receipt policy digest, nonblank charts and desktop/mobile overflow checks.
+- Added a standalone offline report dashboard with candidate selection,
+    equity/drawdown charts, chart data table, simulated transaction filters,
+    risk scenario inspection, CSV preview/download and provenance details.
+    Seven focused export tests passed, including invalid-input rejection,
+    overwrite prevention, optional evidence and script-termination escaping.
+    Strict types and lint passed. Browser checks exercised desktop/mobile layout,
+    chart pixels, candidate/side/scenario changes and CSV preview. Native download
+    completion could not be verified in the integrated browser; CSV text was verified.
+- Generated `.local/dashboard/index.html` from the existing synthetic final run
+    and user-reported KIS receipt. No new research run, broker request, operational
+    policy change, strategy approval or cloud deployment was performed.
 - Recorded user implementation approval of the live extension and ADR 0003,
     retaining separate live activation and deployment gates.
 - Reviewed official KIS personal-use, token and daily-price documentation;
@@ -143,6 +175,53 @@ per-decision input bundle.
 
 ## In Progress
 
+- GitHub Actions 자동 배포를 우선 구현했습니다. PR에는 Azure 권한이 없으며 main의
+    Linux/Windows 품질 검사 후 같은 실행의 합성 ZIP만 OIDC로 게시하도록 연결했습니다.
+    로컬 합성 빌드·패키징과 최종 경계 검사 23개, 실제 사이트 설정의 읽기 전용 검사가 통과했습니다.
+    배포 전용 Entra 앱·비밀 없는 연합 신뢰·웹 앱 한정 Website Contributor, main 전용
+    GitHub 환경과 변수는 실제 구성·재조회했습니다. 워크플로는 미커밋·미푸시이며 원격
+    Actions 토큰 교환과 자동 게시 실행은 미검증입니다. 기존 사이트·로그인 비밀은 변경하지 않았습니다.
+    반복 합성 게시에 한한 타 테넌트 검사 예외 확대를 승인받았습니다. 나머지 ATS 개발은
+    사용자 검토 전까지 보류합니다. 상세 범위·ID·복구 절차: `infra/github-actions.md`.
+- 2026-10-01 후속 승인 후 Azure for MCT / `atsview-rg` / Korea Central에 Windows F1
+    플랜과 사이트, 본인 전용 인증 및 게시 정책을 배포했습니다. 최종 what-if는 생성 6개,
+    수정·삭제 0개였고 ARM 배포와 하위 리소스 5개가 `Succeeded`입니다. 실제 보안 설정
+    13개를 확인했습니다. 전용 Entra 앱과 30일 인증 비밀을 생성했으며 비밀값은 로컬에
+    보관하지 않았습니다. 현재 만료는 2026-10-31 09:28:37 UTC입니다.
+    접근 검증 명령 중단 후 공개 진입을 `Disabled`로 복구하고 익명 HTTP 403을 확인했습니다.
+    후속 브라우저 검사에서 사용자가 본인으로 확인한 계정은 로그인 후 기본 페이지 200,
+    같은 테넌트 비소유자로 확인한 계정은 콜백 403을 반환했습니다. 신원 클레임 직접 대조는
+    미수행입니다. 익명 경로 3개와 잘못된 토큰은 401이었고 검사 후 Disabled 복구를 확인했습니다.
+    추가 승인 후 기존 비밀로 발급한 유효 앱 전용 토큰은 3개 경로에서 403으로 거부됐으며
+    같은 시점의 익명 요청 401 및 IP 차단 헤더 부재로 네트워크 차단과 구분했습니다.
+    비밀 생성·교체 없이 검사 후 Disabled를 복구했습니다. 이후 사용자가 다른 테넌트 검사의
+    미수행 위험을 현재 합성 보고서에 한해 수용하고 게시를 승인했습니다. Entra로 `index.html`
+    한 개를 게시해 서버 해시 일치를 확인했고, 게시 후 본인 200·비소유자 403·익명 401·앱 전용
+    403, 기능 검사 6개 및 데스크톱·모바일 화면을 확인했습니다. 현재 진입은 Enabled이며 인증
+    필수·본인 허용 목록·SCM/FTP 기본 인증 false를 유지합니다. 합성 미리보기 배포만 완료했으며
+    다른 테넌트 검사는 NOT_TESTED, 실거래·전체 ATS 준비는 미완료입니다. 아래 Azure 준비 항목은 배포 전 기록입니다.
+- Azure 읽기 전용 미리보기 준비를 시작했습니다. 2026-10-01 Azure CLI 활성 구독,
+    로그인 사용자 및 사용 가능한 구독 목록 조회에 성공했습니다. 정적 HTML은
+    계획 수립이 가능한 상태지만, 지정 사용자 인증과 배포 파일 분리, 대상별 권한·지역·비용
+    검토가 남아 있습니다. 대상은 `Azure for MCT`, 지역 우선순위는 `Korea Central`이며,
+    본인 Entra 계정만 접근하도록 준비합니다. 공급자 조회상 Static Web Apps에는
+    Korea Central이 없고 App Service 사이트에는 포함돼 있어 대안을 검토합니다.
+    특정 SKU·할당량·비용·본인 인증 권한은 아직 확정하지 않았습니다.
+    구독 기본값 변경·인프라 생성·배포는 수행하지 않았으며 전체 운영 준비 완료가 아닙니다.
+- 선택한 구독에서 상속된 West Europe 제한 및 리소스 변경 시 MFA 정책을 확인했습니다.
+    Advisor 도구는 테넌트 불일치로 조회에 실패했고, 위임한 무료 앱 한도 조회는 정확한
+    사용량 결과를 회수하지 못해 미검증으로 남겼습니다. 다른 지역이나 유료 요금제로
+    자동 전환하지 않습니다.
+- 2026-10-01 사용자의 명시적 승인 후 `Azure for MCT`에 `Microsoft.Quota` 공급자를
+    등록했고 `Registered` 상태를 확인했습니다. 이는 앱·리소스 그룹 생성과는 다릅니다.
+    ARM 관리 권한 조회에는 전체 작업 허용 항목이 있으나 정책·MFA·디렉터리 권한은 별도입니다.
+    Korea Central 일반 사용량 API는 한도 30/사용량 0을 반환했지만 F1별 수치가 아닙니다.
+    SKU별 할당량은 `InvalidResourceName` 등으로 미확정입니다. 무료안의 사용 가능 여부를
+    추정하지 않고 배포 계획을 초안으로 보류했습니다. 인프라 파일과 앱 리소스는 만들지 않았습니다.
+- 추가 읽기 전용 확인에서 해당 구독의 Windows F1 제공 지역에 Korea Central이 포함됨을
+    확인했습니다. 이는 할당량 여유 확인과는 다릅니다. 대상 테넌트를 명시한 인증으로 본인
+    사용자와 기본 앱 등록 허용 정책도 확인했으며, 토큰은 출력·저장하지 않았습니다.
+    실제 인증 앱 생성과 로그인 검증은 아직 하지 않았습니다. F1 할당량은 미검증 상태를 유지합니다.
 - Actual engine and signal adapters, engine-specific input materialization,
     and engine-driven strategy replay remain unimplemented. Local input replay
     now exercises the data gates, but local ports and receipts do
@@ -170,20 +249,31 @@ per-decision input bundle.
     terms attestation and the one-off smoke receipt are now recorded. The default
     source policy remains DRAFT; persistence and recurring collection need their
     own reviewed scope and enforcement.
-- Restore Azure subscription access and validate region, SKU, quota, policy, and
-  cost before infrastructure scaffolding; scaffold and deployment approvals are
-  separate.
+- Azure synthetic-preview scaffold, F1 infrastructure deployment, dedicated
+    30-day credential setup and fail-closed ingress testing were separately approved.
+    Actual owner/non-owner access tests remain mandatory before report upload.
+    No paid/region fallback or live-trading activation is approved.
 - Promotion remains subject to explicit human approval.
 
 ## Blockers
 
-- Azure subscription discovery returns HTTP 403. Region, SKU, quota, policy,
-  and cost validation are blocked until access is restored.
+- Earlier Azure MCP subscription discovery returned HTTP 403. On 2026-10-01,
+    subsequent explicit-target checks, F1 provider validation, what-if and actual
+    Korea Central F1 provisioning succeeded. Numeric quota headroom and final cost
+    remain unverified, not zero. The synthetic preview is published with verified
+    owner/non-owner, anonymous and app-only outcomes. The different-tenant user test
+    is deferred under an explicit operator-approved exception, not marked passed.
 - Collection through source-specific connectors remains gated on documented
     legal and license review. The KIS one-off smoke succeeded by user report;
     a durable, normalized real-data dataset is still unavailable.
 
 ## Next Executable Step
+
+Current priority: review and commit/push the CI/CD implementation only when the
+operator requests it, then verify the first main Actions run, OIDC exchange and
+synthetic-only publication. Remote identity and environment configuration exist,
+but no remote execution success is claimed. Other ATS implementation is paused
+pending the operator's review. The following data work is the later ATS priority.
 
 Define and approve persistence/broader-collection scope, retention enforcement
 and collection policy before another real-data collection. Implement a trusted

@@ -52,13 +52,14 @@ been run remotely in this session. A local pass is not evidence of a CI run.
 | Milestone | State | Required exit evidence |
 | --- | --- | --- |
 | Local verified price-to-report workflow | Implemented, synthetic only | Deterministic reports, normalized hashes, next-open fills, costs, bounded candidate lineage, negative tests |
+| Local read-only dashboard | Implemented, offline HTML | Existing synthetic report and separate historical KIS evidence; 7 exporter tests and desktop/mobile interactions verified; no server or order controls |
 | Production KIS quotes-only connection | One-off smoke successful by user report; 61 offline tests | Receipt for 005930 / 2026-09-30 has one row and matched policy digest; no raw persistence or coverage certification; no order capability |
 | Approved real-data backtest | Blocked and incomplete | Documented source rights; recorded real fixtures; calendars, corporate actions, delistings, coverage and data quality; actual source adapters |
 | Qlib/LEAN independent certification | Not implemented | Both engines execute the exact candidate; approved comparison protocol/tolerances; golden order/return replay; untouched OOS and statistical gates |
 | KIS paper execution and reconciliation | Not implemented | Paper credentials entered outside chat; independent authenticated risk state; atomic reservations/idempotency; token/retry/fill/reconciliation and kill-switch drills |
 | Governed improvement pilot | Partial local sensitivity demo only | Durable registry, bounded scheduled experiments, statistical correction, approvals, rollback, and at least 20 actual paper sessions |
 | News/factor/model improvement | Not implemented | Approved sources, bounded analysis, citations, isolated generated-code jobs, sandbox tests, cost controls, independent certification |
-| Operator control plane | Not implemented | Authenticated API, durable append-only audit, approval verification, policy activation/revocation, operational monitoring and recovery drills |
+| Operator control plane | Offline visualization only; authenticated services not implemented | Authenticated API, durable append-only audit, approval verification, policy activation/revocation, operational monitoring and recovery drills |
 | Deployment preparation | Not approved or validated | Restore subscription access; validate region/quota/policy/cost; separately approve infrastructure scaffolding; validate packaging/security/readiness |
 | Deployment | Outside this authorization | Separate explicit approval after all applicable gates pass |
 
