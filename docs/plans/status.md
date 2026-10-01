@@ -179,8 +179,14 @@ per-decision input bundle.
     Linux/Windows 품질 검사 후 같은 실행의 합성 ZIP만 OIDC로 게시하도록 연결했습니다.
     로컬 합성 빌드·패키징과 최종 경계 검사 23개, 실제 사이트 설정의 읽기 전용 검사가 통과했습니다.
     배포 전용 Entra 앱·비밀 없는 연합 신뢰·웹 앱 한정 Website Contributor, main 전용
-    GitHub 환경과 변수는 실제 구성·재조회했습니다. 워크플로는 미커밋·미푸시이며 원격
-    Actions 토큰 교환과 자동 게시 실행은 미검증입니다. 기존 사이트·로그인 비밀은 변경하지 않았습니다.
+    GitHub 환경과 변수는 실제 구성·재조회했습니다. 후속 승인으로 커밋 `3293182`를 main에
+    푸시했고 [Actions 36865676575](https://github.com/hahaysh/demo-trading/actions/runs/36865676575)가
+    2026-10-01 13:03:19 UTC에 성공했습니다. Linux/Windows 각각 pytest 596개, CI 경계 검사 23개,
+    OIDC 로그인, ZIP 게시, 사후 해시·익명 차단 검사가 통과했습니다. 13:04:57 UTC 별도 조회도
+    서버 해시 일치·익명 401·본인 제한·기본 게시 인증 false를 확인했습니다. 합성 HTML만 갱신됐고
+    로그인 비밀과 인증 정책은 변경하지 않았습니다. PR·수동 실행·실제 복구의 별도 원격 시험과
+    이번 자동 게시 후 본인 브라우저 회귀 검사는 미수행입니다. Node 20 액션의 Node 24 강제 실행
+    경고와 ubuntu-latest 이미지 변경 예고는 유지보수 항목으로 남깁니다.
     반복 합성 게시에 한한 타 테넌트 검사 예외 확대를 승인받았습니다. 나머지 ATS 개발은
     사용자 검토 전까지 보류합니다. 상세 범위·ID·복구 절차: `infra/github-actions.md`.
 - 2026-10-01 후속 승인 후 Azure for MCT / `atsview-rg` / Korea Central에 Windows F1
@@ -269,11 +275,11 @@ per-decision input bundle.
 
 ## Next Executable Step
 
-Current priority: review and commit/push the CI/CD implementation only when the
-operator requests it, then verify the first main Actions run, OIDC exchange and
-synthetic-only publication. Remote identity and environment configuration exist,
-but no remote execution success is claimed. Other ATS implementation is paused
-pending the operator's review. The following data work is the later ATS priority.
+The first main-push CI/CD run, OIDC exchange and synthetic-only publication are
+verified by run 36865676575 at commit 3293182. Do not repeat provisioning or
+credential creation. Additional CI/CD runtime maintenance, PR/manual-trigger and
+failure-recovery tests require a scoped follow-up. Other ATS implementation is
+paused pending the operator's review. The following data work is the later ATS priority.
 
 Define and approve persistence/broader-collection scope, retention enforcement
 and collection policy before another real-data collection. Implement a trusted

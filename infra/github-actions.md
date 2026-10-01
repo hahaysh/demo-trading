@@ -15,10 +15,11 @@ Last verified: 2026-10-01
 - 사용자는 다른 테넌트 실계정 검사 미수행 위험을 **이 CI가 생성하는 합성 미리보기의 반복 게시**에만
   적용하도록 승인했습니다. 해당 검사는 계속 `NOT_TESTED`이며 실제 데이터·운영 ATS·실거래에는 적용하지 않습니다.
 
-워크플로와 도구는 로컬에 구현했고 원격 OIDC·GitHub 환경·변수·권한을 실제 구성 및 재조회했습니다.
-**커밋·푸시와 원격 Actions 실행은 수행하지 않았습니다.** 실제 OIDC 토큰 교환부터 게시까지의
-최초 원격 실행은 관련 파일을 함께 `main`에 반영한 뒤 확인해야 합니다.
-기존 사이트 콘텐츠·인증 설정은 이번 연결 작업에서 변경하지 않았습니다.
+사용자 승인 후 구현과 필수 파일을 커밋 `3293182086940291a8d0687926b45e32ebab210a`로
+main에 푸시하고 **실제 GitHub Actions OIDC 로그인부터 합성 게시까지 성공**을 확인했습니다.
+[첫 자동 배포 실행](https://github.com/hahaysh/demo-trading/actions/runs/36865676575)은
+2026-10-01 13:00:45 UTC에 push로 시작해 13:03:19 UTC에 성공으로 완료됐습니다.
+기존 사이트의 합성 HTML은 갱신됐으며 인증 설정과 로그인용 자격증명은 변경하지 않았습니다.
 
 ## Workflow
 
@@ -79,11 +80,11 @@ repo:hahaysh@24690076/demo-trading@1397617688:environment:ats-preview:ref:refs/h
 
 ## GitHub Settings
 
-- Repository variable: `ATS_PREVIEW_DEPLOY_ENABLED=true`. 구현 파일을 올려야 배포 job이 생깁니다.
+- Repository variable: `ATS_PREVIEW_DEPLOY_ENABLED=true`. main 워크플로가 반영돼 자동 배포 job이 실행됩니다.
 - Environment: `ats-preview`; branch policy: `main` / branch only.
 - Environment variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`는 위 비밀이 아닌 ID입니다.
 - 클라이언트 비밀·publish profile·증권사 키를 GitHub Secrets에 추가하지 않았습니다.
-- 설정 확인 시각: 2026-10-01 11:13:48 UTC. 실제 Actions 런타임 검증 시각은 아직 없습니다.
+- 설정 확인 시각: 2026-10-01 11:13:48 UTC. 최초 실제 Actions 완료: 13:03:19 UTC.
 
 ## Publication Gates
 
@@ -108,6 +109,22 @@ ZIP에는 `index.html` 하나만 포함하고 manifest는 ZIP 밖에 둡니다.
 
 ## Validation
 
+첫 원격 실행의 Linux·Windows 작업은 각각 **596개 pytest 검사 통과**를 기록했습니다.
+Windows에서 CI 경계 검사 23개와 합성 패키징·artifact 업로드도 통과했습니다.
+배포 job의 OIDC 로그인, 커밋·artifact 재검증, ZIP 게시, 서버 해시와 익명 차단 검사,
+Azure logout이 모두 성공했습니다. 실패 시 차단 단계는 성공 경로에서 건너뛰었으므로
+이번 실행을 실제 장애 복구 시험으로 해석하지 않습니다.
+
+- 실행 ID: `36865676575`, event: `push`, source SHA: `3293182086940291a8d0687926b45e32ebab210a`.
+- Azure ZIP deployment ID: `f01a7c3b1f9f4283a9bd26aeb2b280ff`, status 4 / complete true.
+- HTML SHA-256: `e0322a4917508bfc22dd0be2d5d283ee7b33624122e4c2bc081a31b675e00085`.
+- 13:04:57 UTC 별도 읽기 전용 조회에서도 서버 해시 일치, 본인 제한, SCM/FTP basic auth false,
+  공개 진입 Enabled와 `/`, `/index.html` 익명 401을 확인했습니다.
+- 기존 공유 브라우저 세션이 종료돼 이번에는 본인 로그인·화면 회귀 검사를 다시 하지 않았습니다.
+  PR event·수동 dispatch·실패 복구의 별도 원격 실행도 아직 수행하지 않았습니다.
+- GitHub는 Node 20 기반 고정 액션을 Node 24로 실행한다는 폐기 예정 경고와
+  ubuntu-latest의 향후 이미지 변경 안내를 남겼습니다. 이번 실행 실패는 아니며 유지보수 항목입니다.
+
 로컬의 새 합성 실행 -> HTML/ZIP 생성과 최종 23개 패키지·정책 허용/거부 검사를 통과했습니다.
 실제 Azure 인증 응답을 새 검사 함수로 읽기 전용 검증했고, 원격 환경·OIDC·사이트 범위 역할을
 재조회했습니다. YAML 구조·트리거·권한 분리·액션 SHA 고정도 검사했습니다.
@@ -122,9 +139,9 @@ uv run --frozen python -m ats.demo --output .local/ci-check
 ./infra/test-preview-ci.ps1 -PackageDirectory .local/azure-preview/ci-check/package -ExpectedCommit (git rev-parse HEAD)
 ```
 
-현재 필요한 인프라·dashboard 파일 일부도 미커밋 상태이므로 workflow만 따로 올리지 않습니다.
-참조 파일·의존성을 함께 검토해 커밋·푸시한 다음 최초 main 실행의 OIDC 로그인, 게시, 검증 결과를
-확인합니다. 인프라 전체 배포 스크립트나 앱 등록·자격증명 생성은 재실행하지 않습니다.
+필요한 인프라·dashboard 파일은 워크플로와 함께 반영했습니다. 개인 VS Code 설정,
+`.local/`, `.copilot-azure/`와 환경 비밀은 커밋에서 제외했습니다.
+인프라 전체 배포 스크립트나 앱 등록·자격증명 생성은 재실행하지 않습니다.
 
 ## Pause and Recovery
 
