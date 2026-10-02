@@ -9,6 +9,10 @@ Last updated: 2026-10-02
 
 ## Start Here
 
+최신 요청으로 [실전 조회 전용·shadow 계획](kis-readonly-shadow-plan.md)을 작성했습니다(PROPOSED).
+계획 작성과 구현·실제 인증/조회·기간 제한 관찰은 별도 승인입니다. 이후 사용자 요청이 없는 한
+이 문서를 근거로 키를 읽거나 토큰/조회 요청·정기 수집·실주문을 실행하지 않습니다.
+
 현재 작업은 [RSI ATS A-E 개발](rsi-development-plan.md)입니다. 이전 data-to-paper 통합
 완료와 구분하며, 실제 정보 수집·계좌/주문·배포·Git 게시 금지 경계를 유지합니다.
 재개 후 실제 GP/Ridge와 dual engine의 다주기·영속 holdout, 인증 운영 화면까지 연결했습니다.

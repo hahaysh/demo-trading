@@ -6,6 +6,11 @@ Last updated: 2026-10-02
 
 ## Active Milestone
 
+2026-10-02 후속 요청으로 [실전 조회 전용·shadow 계획](kis-readonly-shadow-plan.md)을 작성했습니다.
+상태는 PROPOSED이며 이번 요청은 계획 작성만입니다. 로컬 구현/합성 시험, 단발 실제 조회,
+기간 제한 관찰의 승인을 분리합니다. 실전 키·계좌 조회·주문·저장·배포를 새로 실행하지 않았고
+기존 RSI 완료 기준·paper/live 활성화 조건은 변경하지 않았습니다.
+
 최신 로컬 검증은 **698 passed, 2 skipped, 1 warning**이며 타입·lock·4종 schema·JS 검사를 통과했습니다.
 공유 계정·호가/capacity·합성 분할/순배당, 독립 서명 증거, bounded 상주 수집과 health를 추가했고
 ProDotNetZip 기반 고정 소스 보안 재빌드로 실제 4주기 RSI·holdout·재개를 실행했습니다.
