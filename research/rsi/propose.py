@@ -16,7 +16,7 @@ def propose(request: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "bounded completed history and unevaluated candidates required"
         )
-    inputs = [item["parameters"] for item in history]
+    inputs: list[list[float]] = [item["parameters"] for item in history]
     scores = [float(item["score"]) for item in history]
     width = len(inputs[0])
     if not 1 <= width <= 10 or any(len(row) != width for row in [*inputs, *choices]):
@@ -24,7 +24,7 @@ def propose(request: dict[str, Any]) -> dict[str, Any]:
     if any(
         not math.isfinite(float(value))
         for row in [*inputs, *choices, scores]
-        for value in (row if isinstance(row, list) else [row])
+        for value in row
     ):
         raise ValueError("nonfinite experiment data")
     gp = importlib.import_module("sklearn.gaussian_process")
@@ -65,6 +65,9 @@ def propose(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def causal_ridge(request: dict[str, Any]) -> dict[str, Any]:
+    family = request.get("model_family", "RIDGE")
+    if family not in ("RIDGE", "ELASTIC_NET"):
+        raise ValueError("unauthorized learned model family")
     features, labels = request["features"], request["labels"]
     if not 7 <= len(features) == len(labels) <= 512:
         raise ValueError("bounded feature/label series with warmup required")
@@ -91,7 +94,17 @@ def causal_ridge(request: dict[str, Any]) -> dict[str, Any]:
             predictions.append(0.0)
             training_rows.append(0)
             continue
-        model = linear.Ridge(alpha=1.0)
+        model = (
+            linear.Ridge(alpha=1.0)
+            if family == "RIDGE"
+            else linear.ElasticNet(
+                alpha=0.001,
+                l1_ratio=0.5,
+                max_iter=10000,
+                selection="cyclic",
+                random_state=0,
+            )
+        )
         model.fit(features[:cutoff], labels[:cutoff])
         predictions.append(float(model.predict([feature])[0]))
         training_rows.append(cutoff)
@@ -103,7 +116,9 @@ def causal_ridge(request: dict[str, Any]) -> dict[str, Any]:
             }
         )
     return {
-        "model": "Ridge/expanding-past-only",
+        "model": "Ridge/expanding-past-only"
+        if family == "RIDGE"
+        else "ElasticNet/expanding-past-only",
         "library_version": version("scikit-learn"),
         "predictions": predictions,
         "training_rows": training_rows,
@@ -180,6 +195,63 @@ def dsr_diagnostic(request: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def block_bootstrap(request: dict[str, Any]) -> dict[str, Any]:
+    numpy = importlib.import_module("numpy")
+    segments = [numpy.asarray(values, dtype=float) for values in request["segments"]]
+    trials = request["total_trials"]
+    lengths = request["block_lengths"]
+    samples, seed = 8192, 0
+    observations = sum(len(values) for values in segments)
+    if (
+        type(trials) is not int
+        or not 1 <= trials <= 1000
+        or not 2 <= len(segments) <= 6
+        or observations > 512
+        or not 1 <= len(lengths) <= 4
+        or len(set(lengths)) != len(lengths)
+        or any(type(length) is not int or not 2 <= length <= 32 for length in lengths)
+        or any(
+            values.ndim != 1 or not numpy.isfinite(values).all() for values in segments
+        )
+    ):
+        raise ValueError("invalid bounded block bootstrap input")
+    result: dict[str, Any] = {
+        "model": "NumPy/circular-block-bootstrap",
+        "library_version": version("numpy"),
+        "observations": observations,
+        "total_trials": trials,
+        "block_lengths": lengths,
+        "resamples": samples,
+        "seed": seed,
+        "assumption": "WITHIN_FOLD_STATIONARITY_NOT_MARKET_CERTIFICATION",
+        "lower_bound": None,
+        "status": "INSUFFICIENT_EVIDENCE",
+        "promoted": False,
+    }
+    alpha = 0.05 / trials
+    if (
+        observations < 60
+        or samples * alpha < 5
+        or any(len(values) < 4 * max(lengths) for values in segments)
+    ):
+        return result
+    bounds: list[float] = []
+    for length in lengths:
+        generator = numpy.random.default_rng(seed)
+        sums = numpy.zeros(samples)
+        for values in segments:
+            count = len(values)
+            starts = generator.integers(
+                0, count, size=(samples, math.ceil(count / length))
+            )
+            indices = (starts[:, :, None] + numpy.arange(length)) % count
+            indices = indices.reshape(samples, -1)[:, :count]
+            sums += values[indices].sum(axis=1)
+        bounds.append(float(numpy.quantile(sums / observations, alpha)))
+    result.update(status="DIAGNOSTIC_ONLY", lower_bound=min(bounds), bounds=bounds)
+    return result
+
+
 if __name__ == "__main__":
     payload = sys.stdin.buffer.read(1024 * 1024 + 1)
     if len(payload) > 1024 * 1024:
@@ -189,6 +261,8 @@ if __name__ == "__main__":
         result = causal_ridge(request)
     elif request.get("task") == "dsr":
         result = dsr_diagnostic(request)
+    elif request.get("task") == "block_bootstrap":
+        result = block_bootstrap(request)
     else:
         result = propose(request)
     result["input_sha256"] = hashlib.sha256(payload).hexdigest()

@@ -7,9 +7,16 @@ import pytest
 
 from ats.backtest.candidates import compare_candidates
 from ats.backtest.engines import (
+    CorporateAction,
+    EngineAsset,
     EngineCase,
     EngineResult,
+    SharedEngineCase,
     TargetEngineCase,
+    apply_corporate_actions,
+    engine_results_match,
+    execution_price,
+    shared_account_reference,
     validate_engine_result,
 )
 from ats.backtest.native import SimulationAssumptions, run_native_backtest
@@ -20,6 +27,217 @@ from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipM
 from ats.domain.prices import DailyPrice
 from ats.domain.strategy import ArtifactRef, StrategySpec
 from ats.domain.universe import UniverseMembershipArtifact
+
+
+def test_corporate_action_ownership_and_payment_are_separate() -> None:
+    from datetime import time
+
+    from ats.domain.prices import SEOUL
+
+    base = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    evidence = ArtifactRef(
+        artifact_id="synthetic-action", version="1", digest="sha256:" + "a" * 64
+    )
+    known = datetime.combine(base.dates[0], time(7), tzinfo=SEOUL)
+    split = CorporateAction(
+        action_id="synthetic-split",
+        kind="FORWARD_SPLIT",
+        session=base.dates[1],
+        known_at=known,
+        evidence=evidence,
+        new_shares_per_old=2,
+    )
+    dividend = CorporateAction(
+        action_id="synthetic-dividend",
+        kind="NET_CASH_DIVIDEND",
+        session=base.dates[2],
+        payment_session=base.dates[4],
+        known_at=known,
+        evidence=evidence,
+        net_cash_per_share=1,
+    )
+    case = EngineCase.model_validate(
+        {
+            **base.model_dump(),
+            "open": (100, 50, 49, 49, 49),
+            "close": (100, 50, 49, 49, 49),
+            "corporate_actions": (split, dividend),
+        }
+    )
+    pending: dict[str, float] = {}
+    assert apply_corporate_actions(case, 1, 10, pending) == (20, 0)
+    assert apply_corporate_actions(case, 2, 20, pending) == (20, 0)
+    assert sum(pending.values()) == 20
+    assert apply_corporate_actions(case, 4, 0, pending) == (0, 20)
+    assert not pending
+    target = TargetEngineCase.model_validate(
+        {
+            **case.model_dump(),
+            "quantity": 20,
+            "targets": (10, 20, 0, 0, 0),
+            "decided_at": tuple(
+                datetime.combine(session, time(8), tzinfo=SEOUL)
+                for session in case.dates
+            ),
+            "signal_artifact": evidence,
+        }
+    )
+    shared = SharedEngineCase.model_validate(
+        {
+            **case.model_dump(),
+            "assets": (
+                EngineAsset(instrument_id="krx-one", case=target),
+                EngineAsset(instrument_id="krx-two", case=target),
+            ),
+        }
+    )
+    fills, equity = shared_account_reference(shared)
+    assert [fill.quantity for fill in fills] == [10, 10, 20, 20]
+    assert equity[-1] == pytest.approx(99992.12)
+    from ats.backtest.portfolio import FactorComposition, compile_factors
+
+    with pytest.raises(ValueError, match="adjustment protocol"):
+        compile_factors(
+            case, FactorComposition(lookback=2), instrument="krx-one", information=()
+        )
+    adjusted = compile_factors(
+        case,
+        FactorComposition(lookback=2, price_adjustment="TOTAL_RETURN"),
+        instrument="krx-one",
+        information=(),
+    )
+    assert adjusted.targets == (0,) * 5
+    changed = case.model_copy(update={"close": (*case.close[:-1], 55.0)})
+    assert (
+        compile_factors(
+            changed,
+            FactorComposition(lookback=2, price_adjustment="TOTAL_RETURN"),
+            instrument="krx-one",
+            information=(),
+        ).targets
+        == adjusted.targets
+    )
+    assert adjusted.open == case.open and adjusted.close == case.close
+    with pytest.raises(ValueError, match="known terms"):
+        EngineCase.model_validate(
+            {
+                **case.model_dump(),
+                "corporate_actions": (
+                    split.model_copy(
+                        update={
+                            "known_at": datetime.combine(
+                                split.session, time(9), tzinfo=SEOUL
+                            )
+                        }
+                    ),
+                    dividend,
+                ),
+            }
+        )
+
+
+def test_tick_rounding_is_adverse_and_cannot_create_free_execution() -> None:
+    assert execution_price(100, buy=True, slippage=0.001, tick=1) == 101
+    assert execution_price(100, buy=False, slippage=0.001, tick=1) == 99
+    case = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    assert (
+        EngineCase.model_validate(
+            {**case.model_dump(), "slippage": 0.001, "price_tick": 1}
+        ).price_tick
+        == 1
+    )
+    with pytest.raises(ValueError, match="nonpositive"):
+        EngineCase.model_validate({**case.model_dump(), "price_tick": 1000})
+
+
+def test_shared_capacity_leaves_unfilled_target_without_borrowing() -> None:
+    from ats.backtest.portfolio import FactorComposition, compile_factors
+
+    base = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    base = EngineCase.model_validate(
+        {**base.model_dump(), "opening_capacity": (0, 0, 3, 2, 1)}
+    )
+    target = compile_factors(
+        base, FactorComposition(lookback=2), instrument="krx-one", information=()
+    )
+    case = SharedEngineCase.model_validate(
+        {
+            **base.model_dump(),
+            "assets": (
+                EngineAsset(instrument_id="krx-one", case=target),
+                EngineAsset(instrument_id="krx-two", case=target),
+            ),
+        }
+    )
+    fills, equity = shared_account_reference(case)
+    assert [fill.quantity for fill in fills] == [3, 3, 2, 2, 1, 1]
+    assert equity[-1] == pytest.approx(99997.6)
+    with pytest.raises(ValueError, match="capacity"):
+        EngineCase.model_validate({**base.model_dump(), "opening_capacity": (1,)})
+
+
+def test_shared_settlement_rejects_buy_using_unsettled_sale_proceeds() -> None:
+    from datetime import time
+
+    from ats.domain.prices import SEOUL
+
+    base = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    base = EngineCase.model_validate(
+        {**base.model_dump(), "initial_cash": 10000.0, "close": (100.0,) * 5}
+    )
+    assets: list[EngineAsset] = []
+    signal = ArtifactRef(
+        artifact_id="synthetic-settlement-signal",
+        version="1",
+        digest="sha256:" + "a" * 64,
+    )
+    for index in range(10):
+        targets = (
+            (10, 0, 0, 0, 0)
+            if index == 0
+            else (0, 9, 9, 9, 9)
+            if index == 9
+            else (10,) * 5
+        )
+        target = TargetEngineCase.model_validate(
+            {
+                **base.model_dump(),
+                "open": (110.5,) * 5 if index == 9 else base.open,
+                "close": (110.5,) * 5 if index == 9 else base.close,
+                "quantity": 9 if index == 9 else 10,
+                "targets": targets,
+                "decided_at": tuple(
+                    datetime.combine(session, time(8), tzinfo=SEOUL)
+                    for session in base.dates
+                ),
+                "signal_artifact": signal,
+            }
+        )
+        assets.append(EngineAsset(instrument_id=f"krx-{index}", case=target))
+    immediate = SharedEngineCase.model_validate({**base.model_dump(), "assets": assets})
+    assert shared_account_reference(immediate)[1][-1] > 9900
+    delayed = SharedEngineCase.model_validate(
+        {**immediate.model_dump(), "cash_settlement_sessions": 2}
+    )
+    with pytest.raises(ValueError, match="unsettled"):
+        shared_account_reference(delayed)
+    waiting = assets[-1].model_copy(
+        update={"case": assets[-1].case.model_copy(update={"targets": (0, 0, 0, 9, 9)})}
+    )
+    settled = SharedEngineCase.model_validate(
+        {**delayed.model_dump(), "assets": (*assets[:-1], waiting)}
+    )
+    assert shared_account_reference(settled)[1][-1] == pytest.approx(
+        shared_account_reference(immediate)[1][-1]
+    )
 
 
 def test_versioned_target_stream_rejects_same_open_decisions() -> None:
@@ -48,6 +266,118 @@ def test_versioned_target_stream_rejects_same_open_decisions() -> None:
     )
     with pytest.raises(ValueError, match="unavailable"):
         TargetEngineCase.model_validate(payload)
+
+
+def test_shared_account_counts_initial_cash_once_and_rejects_duplicate_symbols() -> (
+    None
+):
+    from ats.backtest.portfolio import FactorComposition, compile_factors
+
+    base = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    target = compile_factors(
+        base, FactorComposition(lookback=2), instrument="krx-one", information=()
+    )
+    assets = (
+        EngineAsset(instrument_id="krx-one", case=target),
+        EngineAsset(instrument_id="krx-two", case=target),
+    )
+    case = SharedEngineCase.model_validate({**base.model_dump(), "assets": assets})
+    fills, equity = shared_account_reference(case)
+    assert len(fills) == 4 and equity[0] == 100000 and equity[-1] == 99992
+    assert {fill.instrument_id for fill in fills} == {"krx-one", "krx-two"}
+    concentrated = target.model_copy(update={"initial_cash": 11000.0})
+    gapped = concentrated.model_copy(
+        update={
+            "open": (100.0, 100.0, 100.0, 80.0, 100.0),
+            "close": (100.0, 110.0, 100.0, 100.0, 100.0),
+        }
+    )
+    gap_case = SharedEngineCase.model_validate(
+        {
+            **base.model_dump(),
+            "initial_cash": 11000.0,
+            "assets": (
+                EngineAsset(instrument_id="krx-one", case=gapped),
+                EngineAsset(instrument_id="krx-two", case=gapped),
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="loss halt"):
+        shared_account_reference(gap_case)
+    with pytest.raises(ValueError, match="unique"):
+        SharedEngineCase.model_validate(
+            {**base.model_dump(), "assets": (assets[0], assets[0])}
+        )
+
+
+def test_shared_portfolio_checks_guard_and_price_availability_before_engines() -> None:
+    from datetime import time
+
+    from ats.backtest.portfolio import (
+        FactorComposition,
+        PortfolioAsset,
+        PortfolioRequest,
+        compile_factors,
+        evaluate_shared_portfolio,
+    )
+    from ats.domain.prices import SEOUL
+
+    base = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    target = compile_factors(
+        base, FactorComposition(lookback=2), instrument="krx-one", information=()
+    )
+    asset = PortfolioAsset(
+        instrument_id="krx-one",
+        asset_class="EQUITY",
+        case=target,
+        eligible=(True,) * 5,
+        tradable=(True,) * 5,
+        classification_known_at=(target.decided_at[0],) * 5,
+        price_observed_at=tuple(
+            datetime.combine(session, time(15, 31), tzinfo=SEOUL)
+            for session in base.dates
+        ),
+        corporate_actions=("NONE",) * 5,
+    )
+    request = PortfolioRequest(
+        assets=(asset, asset.model_copy(update={"instrument_id": "krx-two"})),
+        strategy_digest="sha256:" + "a" * 64,
+        snapshot_digest="sha256:" + "b" * 64,
+        image_digest="sha256:" + "c" * 64,
+    )
+
+    def deny() -> None:
+        raise ValueError("operator halted")
+
+    with pytest.raises(ValueError, match="halted"):
+        evaluate_shared_portfolio(
+            request, qlib_lock=Path("absent"), lean_lock=Path("absent"), guard=deny
+        )
+    with pytest.raises(ValueError, match="before close"):
+        PortfolioAsset.model_validate(
+            {**asset.model_dump(), "price_observed_at": target.decided_at}
+        )
+    with pytest.raises(ValueError, match="future historical"):
+        PortfolioAsset.model_validate(
+            {
+                **asset.model_dump(),
+                "classification_known_at": tuple(
+                    value + timedelta(minutes=1) for value in target.decided_at
+                ),
+            }
+        )
+    with pytest.raises(ValueError, match="suspended"):
+        PortfolioAsset.model_validate(
+            {
+                **asset.model_dump(),
+                "eligible": (True, True, True, False, False),
+                "tradable": (True, True, True, False, False),
+            }
+        )
 
 
 def test_purged_folds_do_not_train_on_future_labels_and_correct_search_bias() -> None:
@@ -337,10 +667,14 @@ def test_data_to_paper_smoke_is_offline_reproducible_and_not_certified(
     assert first["promoted"] is False
 
 
-def test_full_engine_result_validation_rejects_lookahead_and_bad_cash() -> None:
+@pytest.mark.parametrize("slippage", [0.0, 0.01])
+def test_full_engine_result_validation_rejects_lookahead_and_bad_cash(
+    slippage: float,
+) -> None:
     case = EngineCase.model_validate_json(
         Path("research/engines/case.json").read_bytes()
     )
+    case = EngineCase.model_validate({**case.model_dump(), "slippage": slippage})
     result = EngineResult.model_validate(
         {
             "engine": "QLIB",
@@ -355,21 +689,34 @@ def test_full_engine_result_validation_rejects_lookahead_and_bad_cash() -> None:
                     "date": "2026-09-23",
                     "side": "BUY",
                     "quantity": 10,
-                    "price": 100,
-                    "cost": 1,
+                    "price": 100 * (1 + slippage),
+                    "cost": 1 * (1 + slippage),
                 },
                 {
                     "date": "2026-09-24",
                     "side": "SELL",
                     "quantity": 10,
-                    "price": 100,
-                    "cost": 3,
+                    "price": 100 * (1 - slippage),
+                    "cost": 3 * (1 - slippage),
                 },
             ],
-            "equity": [100000, 100000, 99899, 99996, 99996],
+            "equity": [100000, 100000, 99888.99, 99976.02, 99976.02]
+            if slippage
+            else [100000, 100000, 99899, 99996, 99996],
         }
     )
     validate_engine_result(case, result)
+    roundoff = result.model_copy(
+        update={"equity": tuple(value + 1e-11 for value in result.equity)}
+    )
+    assert engine_results_match(result, roundoff)
+    changed = result.model_copy(
+        update={"equity": (*result.equity[:-1], result.equity[-1] + 0.01)}
+    )
+    assert not engine_results_match(result, changed)
+    assert not engine_results_match(
+        result, result.model_copy(update={"input_sha256": "d" * 64})
+    )
     with pytest.raises(ValueError, match="conservation"):
         validate_engine_result(
             case, result.model_copy(update={"equity": (100000,) * 5})

@@ -20,18 +20,18 @@ RSI ATS가 목표입니다. 이전 합성 data-to-paper 통합은 출발점이�
 | ID | 완료 대상 | 필요한 실행 근거 | 현재 |
 | --- | --- | --- | --- |
 | A1 | DART 목록/원문 수집·정정 provenance | 문서 기반 HTTP fixture, 페이지·범위·중복·오류·예산·키 redaction | 목록/ZIP/XML 경로 검증; 정정 원공시 연결은 일부 |
-| A2 | KIND/KRX 공개 정보·뉴스 API/RSS·승인 공개 채널 | 제공자별 검증된 규약/권리 범위, 비활성 기본값, 원문/수정/삭제 처리 | Naver/RSS/Atom/공개 export·KRX 기본정보 구현; KIND/다른 서비스·삭제 처리 남음 |
+| A2 | KIND/KRX 공개 정보·뉴스 API/RSS·승인 공개 채널 | 제공자별 검증된 규약/권리 범위, 비활성 기본값, 원문/수정/삭제 처리 | Naver/RSS/공개 export·KRX 세 시장 기본정보·DART 경유 거래소 공시 구현; KIND 직접 계약·실제 이용 승인 미확보 |
 | A3 | 정기·증분 수집 orchestration | watermark/중첩 기간/갭·재시도·경합·재시작·상태·보존 만료 | 영속 스케줄·lease·범위/gap·복구 구현; 운영 예약 미실행 |
 | B1 | 시점 보존·기업/종목 연결·중복/재전파 | 정확한 시간과 날짜 정밀도 구분, 과거 별칭, 근거 digest, 누출 음성시험 | 로컬 규칙/시점 검증 구현; 실제 별칭 원천 미확보 |
 | B2 | 사건·신뢰도·불확실성·교차검증·정정/반박·feature | 비신뢰 텍스트 격리, 독립 출처 구분, 루머 단독 주문 금지, 시점별 feature | 규칙 기반 feature/반박/재전파 검증; 의미적 정정 연결 일부 |
 | C1 | 후보/실험/연구 기억·계보·예산·중복·복구 | 영속 ledger, model/prompt/code/lock/seed/snapshot 바인딩, restart | 합성 campaign 영속화·코드/자료 drift·재개 검증 |
 | C2 | 실제 모델 기반 다주기 RSI | 실제 학습/추론, 이전 성과를 바꾸면 다음 제안이 달라지는 실험, 거절/무개선 유지 | 실제 GP 제안/Ridge 학습·4주기·반증/재개 검증 |
-| C3 | 조합·팩터·모델 확장 | 허용된 불변 DSL/스키마, 실제 엔진 실행, 위험/브로커 mutation 거절 | 추세/역추세·공식 정보 gate·Ridge 조합 구현; 일반 모델 탐색 아님 |
-| D1 | 다종목 portfolio/달력/기업행동/역사 적격성/체결 | 비용·세금·유동성·정지·상장폐지·수정자료·보유/현금 보존 | 다종목 sleeve/현금 검사 구현; 기업행동 처리·KRX 모델 미완료 |
-| D2 | walk-forward/OOS/스트레스/탐색 편향 | purging/embargo, fold 고정, test 미접근, 다중검정·regime·capacity | 고정 holdout/purged fold/비용 stress·DSR 진단 구현; 통계·regime·capacity 통합 gate 미완료 |
+| C3 | 조합·팩터·모델 확장 | 허용된 불변 DSL/스키마, 실제 엔진 실행, 위험/브로커 mutation 거절 | 추세/역추세·공식 정보 gate·Ridge/ElasticNet 탐색 구현; 허용 DSL 밖 일반 모델은 제외 |
+| D1 | 다종목 portfolio/달력/기업행동/역사 적격성/체결 | 비용·세금·유동성·정지·상장폐지·수정자료·보유/현금 보존 | 공유 계정·슬리피지/tick/capacity·명시적 분할/순배당 실제 비교; 실 KRX·일반 기업행동/결제 인증 미완료 |
+| D2 | walk-forward/OOS/스트레스/탐색 편향 | purging/embargo, fold 고정, test 미접근, 다중검정·regime·capacity | holdout/비용·슬리피지 stress/DSR/block bootstrap/기본 거절 gate 구현; 일반 시장 인증 미완료 |
 | D3 | 실제 Qlib·LEAN과 paper 평가 연결 | 두 전체 엔진의 정확한 signal stream/주문/성과 비교, mock broker 구분 | 팩터·Ridge stream의 실제 두 엔진 일치; RSI→paper 후보 연결 미완료 |
-| D4 | 알려진 의존성 취약점 | advisory 대조, 허용된 업그레이드 시도·회귀, 미해결 위험 명시 | 5종 패치 버전 고정·엔진 회귀; DotNetZip 경고 잔존 |
-| E1 | 인증된 승인/중단/복구·감사/경보 | 기본 거절, 역할/리플레이/만료, 원자적 선택, 인간 승인, risk 분리 | JWT/명령 바인딩/감사/선택 구현; 독립 증거 공급·실제 신원 미연결 |
+| D4 | 알려진 의존성 취약점 | advisory 대조, 허용된 업그레이드 시도·회귀, 미해결 위험 명시 | ProDotNetZip 고정 소스 재빌드·ZIP/실제 엔진 회귀 통과; 과거 runtime 경고와 upstream 분석 경고 구분 |
+| E1 | 인증된 승인/중단/복구·감사/경보 | 기본 거절, 역할/리플레이/만료, 원자적 선택, 인간 승인, risk 분리 | JWT/감사/선택·독립 서명/원문 검증 구현; 실제 관측자·신원·세션 미연결 |
 | E2 | 운영 상태 화면/전체 orchestration | desktop/mobile·접근 제어·실제 화면동작, 수집→반복연구→검증→승인대기 | 합성 UI/다주기 흐름 검증; 실제 운영 미가동 |
 | G1 | 현재 전체 품질/문서/재현 | lint/types/test/schema, 실제 모델/엔진 실행 기록, 잔여 상태 구분 | 아래 현재 검사 결과; A-E 전체 완료 아님 |
 
@@ -61,8 +61,9 @@ RSI ATS가 목표입니다. 이전 합성 data-to-paper 통합은 출발점이�
 ## Work Queue
 
 P1은 모델 탐색 확대보다 먼저 보강할 기반, P2는 그 기반을 이용한 확장입니다. DECISION은
-명시적 운영자 결정, FINAL은 개발 후 최종 검증입니다. 이번 요청은 현황·계획 정리이며 아래
-개발이나 실제 실행을 새로 시작한 것은 아닙니다. 구현된 기반은 유지하고 남은 부분만 추적합니다.
+명시적 운영자 결정, FINAL은 개발 후 최종 검증입니다. 이 목록은 현황 정리 후 사용자의 명시적
+연속 개발 요청으로 실행을 재개했습니다. 아래 완료 기준은 유지하며 새 근거는
+[Implementation Follow-Up](#implementation-follow-up)에 기록합니다.
 
 | ID | 우선순위 / 관련 기준 | 남은 할 일 | 완료 판단 근거 |
 | --- | --- | --- | --- |
@@ -106,6 +107,170 @@ W8을 진행합니다. W7 미결정은 broker 없는 구현 전체를 막지 않
    중단 후 재개 절차가 필요합니다. 화면 접속 성공만으로 상주 서비스나 복구 준비가 검증되지는 않습니다.
 7. **보안·유지보수:** 격리는 DotNetZip 취약점의 해결이 아닙니다. 의존성 advisory·라이선스·패치
    회귀를 계속 관리하고, 코드/모델/lock 변경 시 새 증거를 만들며 과거 campaign을 재라벨링하지 않습니다.
+
+## Implementation Follow-Up
+
+2026-10-02 후속 연속 개발 중의 체크포인트입니다. **W1-W8/A-E 전체 미완료**이며 최종 보고가 아닙니다.
+시작 시 작업 트리는 깨끗했고 이전 다른 작업자의 커밋은 보존했습니다. 이번 커밋/푸시는 없습니다.
+
+- W1: 원문 tombstone과 재유입 차단, 동일 저장소의 전이 파생물 삭제·만료 단축을 구현했습니다.
+   관측/archive/분석 manifest를 원문에 연결하며, 연구·모델·엔진·holdout 실행 경계에서 보존 자료를
+   다시 검증합니다. 원문이 없으면 campaign 안에 복사된 feature만으로 연구할 수 없습니다.
+   명시적 정정 연결의 자기 참조·미래 원문·다른 회사·순환 연결을 거절합니다. 원공시 자동 추정은 하지 않습니다.
+- W2: 승인 전 기본 거절 OOS 리뷰 게이트와 fold 내부 원형 block bootstrap을 추가했습니다.
+   bootstrap은 NumPy, seed 0, 8192회, 블록 5/10, 탐색 횟수 보정이며 짧은 fold/표본과 부족한 꼬리
+   해상도는 INSUFFICIENT_EVIDENCE입니다. 시장 전체의 시계열 의존성 인증은 아닙니다.
+   실제 160개 합성 관측의 양수/음수 하한 0.0016517194365370895/-0.002365599870371327과
+   동일 seed 재현을 확인했습니다. 정책 미승인·표본/성과/국면/유동성 부족은 리뷰 가능으로 처리하지 않습니다.
+- W2 체결: Qlib 매수/매도별 거래 가격과 LEAN ConstantSlippageModel에 같은 가정을 적용했습니다.
+   실제 1% 합성 시험에서 매수 101원/수수료 1.01원, 매도 99원/수수료 2.97원,
+   최종 평가자산 99976.02원으로 일치했습니다. Qlib 정밀도로 정확히 표현할 수 없는 가격은 거절합니다.
+   비용 stress는 슬리피지도 배수 적용합니다. 이것이 실 KRX 호가·부분 체결·결제 모델을 대신하지 않습니다.
+- W3: 기본 OperatorStore는 독립 검증기 없이 승격/롤백을 거절합니다. SignedPromotionVerifier는
+   신뢰된 발급자/용도/서명·전략/정책/계좌/한국 날짜·기간·원문 바이트 해시를 검사합니다.
+   중복 세션·재사용된 broker 근거·합성/운영 혼합을 거절하며 HS256은 합성 설정만 허용합니다.
+   신뢰할 실제 독립 관측자·운영 공개키·실제 세션은 연결하지 않았습니다. 서명은 발급자의 진실성을 자동 증명하지 않습니다.
+- W4: 공식 advisory는 DotNetZip 1.16.0에 수정 버전이 없고 ProDotNetZip 1.19.0에 수정됐다고 명시합니다.
+   공식 패키지의 DLL은 ProDotNetZip.dll이며 기존 바이너리 참조를 자동 대체하지 않습니다.
+   현재 2.5 계열 최신 QuantConnect.Compression 2.5.18127도 DotNetZip 1.16.0을 요구합니다.
+   안전한 소스 재빌드/호환 대체와 회귀는 아직 남았고 취약점은 해결 처리하지 않았습니다.
+- W5: 신규 LINEAR_SEARCH campaign에서 signal.model_family를 허용 파라미터로 추가했습니다.
+   실제 Ridge/ElasticNet의 미래 label 불변·과거 label 민감도 시험과 GP 기반 4주기를 확인했습니다.
+   첫 통합 실행에서 변경 4개가 기존 최대 3개를 초과해 거절됐습니다. 예산을 늘리는 대신 후보 공간을
+   기존 변경 수 안으로 제한해 재검증했습니다. 실패 root도 남겨 성공으로 덮어쓰지 않았습니다.
+- W6: bounded round-robin 수집 sweep의 소스별 실패 격리·갭·중단·예산 소진을 구현했습니다.
+   데이터 전용 SQLite 백업은 해시/무결성/새 경로를 검사하고 복구 시 동일 저장소의 최신 tombstone을
+   필수 병합합니다. 운영/연구/주문 장부의 되돌리기 용도로 사용할 수 없습니다. 외부 백업 삭제나
+   보존 장부 자체가 소실된 재해 복구까지 해결한 것은 아닙니다.
+- W7: ADR 0004는 여전히 미승인입니다. 기존 champion 검사와 broker 없는 shadow 경계를 유지합니다.
+
+새 실제 합성 실행 `.local/rsi-retained-20261002/`: 수집 12주기, 연구 4주기, 학습 제안 2회,
+후보 모두 REJECTED, broker 요청 0, 승격 false. sequence 1 ElasticNet holdout의 실제 엔진 결과 8개,
+보정 하한 -0.000025835514388855376, DSR/bootstrap 근거 부족, 리뷰 false, deployment_ready=false입니다.
+같은 root의 재개는 4주기 그대로이고 holdout은 저장 결과를 반환했습니다.
+임시 복원본에서 원문 철회 후 파생물 13개 제거와 연구 입력 거절을 확인했으며 원본은 보존했습니다.
+
+- report SHA-256: `d1a2de9e14e0c6775a807c5cc714dc468485783a04ab3fee21295557285a2627`
+- holdout SHA-256: `ead0e9dbf2e1ff7b6f16cf95208f85e6acb8f135d112d6383988e61f6cf8f42d`
+- engine image: `sha256:8044b57a7c8e6d7981b1d095dbe773b091edc2fe210537abe2db5ad93e49cbc8`
+- model image: `sha256:3e8880971044015e2773a7a9301bfeaf38f300b2e30b8e81c06ff9224892e3dd`
+
+직전 전체 실행은 684 passed/2 skipped/1 warning이며 이후 보존 guard·슬리피지 추가의 집중 검사와
+위 실제 엔진 실행을 수행했습니다. 새 전체 검사는 후속 변경에 맞춰 다시 수행하며 수치를 합산하지 않습니다.
+운영 UI는 <http://127.0.0.1:8768>에서 앞선 v2 합성 장부를 표시합니다. 실행 성공/리뷰 거절과
+미충족 조건을 구분하고 VIEWER 명령 금지·페이지 넘침 없음·표 내부 스크롤을 확인했습니다.
+요청 viewport 390px 대비 브라우저 실제 CSS 폭은 312px이었으며 그 폭에서도 확인했습니다.
+현재 보존 guard가 필요한 과거 campaign은 새 코드로 재라벨링하지 않고 신규 campaign으로 검증합니다.
+
+### Latest Local Validation
+
+위 체크포인트 이후 W2/W3/W4/W6를 추가 구현했습니다. 전체 A-E 완료를 뜻하지 않습니다.
+
+- 실제 Qlib/LEAN의 **공유 현금 다종목 경로**를 추가했습니다. 체결 종목·순서·비용·현금·노출·
+   장 시작 갭 손실을 독립 검증합니다. 기존 sleeve API는 호환성용이며 이제 유일한 경로가 아닙니다.
+   엔진 비교에는 기존 호스트 정밀도인 절대 1e-7을 재사용하며 원래 결과를 반올림해 덮어쓰지 않습니다.
+   0.01원 차이와 다른 입력 해시는 거절합니다. 관측된 1.455e-11원 누적 오차와 경제적 차이를 구분합니다.
+- 명시적 tick의 매수 올림/매도 내림과 opening_capacity를 연결했습니다. 실제 단일 종목의
+   3/2/1주, 공유 계정의 종목별 3/2/1주 체결이 일치했습니다. OOS도 capacity를 fold별로 잘라 사용하며
+   tick/capacity가 연구 입력과 달라진 holdout은 거절합니다. 실제 broker 부분체결 통지 인증은 아닙니다.
+- 정수 정방향 분할과 순배당의 ex-session/지급일을 명시하는 합성 raw-target 경로를 추가했습니다.
+   권리 확정 후 매도해도 배당 미수금이 지급일까지 유지됩니다. 실제 두 엔진의 최종 평가자산은
+   단일 99996.06원, 공유 99992.12원으로 일치했습니다. 미수 배당은 새 매수 가용 현금에 포함하지 않습니다.
+   자동 팩터 연구는 별도 가격 조정 프로토콜 없이 기업행동 입력을 쓰지 못합니다.
+- 명시적 결제 세션 수는 독립 사전검사에서 미결제 매도대금 사용을 거절하고 결제 후 허용합니다.
+   이 검증은 HOST_PREFLIGHT_ONLY이며 실제 KRX 결제/청산 모델을 인증하지 않습니다.
+- 독립 서명 검증기를 합성 선택/롤백 테스트에 직접 연결했습니다. 현재 run/evaluation 바이트,
+   전략 생성 이후 관측·인간 검토 이전 완료, 계좌와 고유 세션을 검사합니다. 공개 합성 서명과
+   20개 합성 관측은 실제 모의운영 실적이 아니며 운영 발급자·신원·세션은 여전히 미연결입니다.
+- W4의 **새 보안 재빌드 경로**는 Compression/Common/Engine 세 모듈을 공식 commit
+   `03514bbc94fc391eb09ff0e592b262beb1e682fd`에서 ProDotNetZip 1.19.0으로 재빌드합니다.
+   source archive SHA-256은 `4f41ea42f3178c283a85909f2429548c0f55ca02a0b138072f6c811fadb16938`이며,
+   네 lock의 locked-mode restore, 출력 DLL 전체의 원래 DotNetZip 참조 부재, 정상 및 경로 탈출 ZIP,
+   실제 단일/다종목/tick/capacity/기업행동 회귀를 통과했습니다. 라이선스·NOTICE·변경 표식을 보존합니다.
+   기존 공식 바이너리의 strong-name을 위조하지 않았으며, 과거 이미지가 소급 수정된 것도 아닙니다.
+   upstream 코드 분석 경고는 로그에 남고 전체 보안 준비 완료로 해석하지 않습니다.
+- `serve_information`의 bounded 상주 루프·중단 신호와 영속 watermark health 판정을 추가했습니다.
+   현재 지연과 과거 실행 성공은 별도 표시합니다. 브라우저에서 잘못된 토큰 뒤 health·대상 선택·건수
+   제거를 확인했습니다. OS 예약 등록·실제 수집·외부 경보 전송은 하지 않았습니다.
+
+현재 전체 검사: **693 passed, 2 skipped, 1 warning**, strict Pyright 0,
+Ruff lint/format 89 files, lock 및 4종 schema·diff 검사 통과. 건너뜀·warning 사유는 앞선 기록과 같습니다.
+
+새 보안 runtime 실제 실행은 `.local/rsi-security-20261002/`입니다. 수집 12주기/연구 4주기/학습 제안 2회,
+후보 모두 REJECTED, sequence 1 ElasticNet의 holdout 엔진 결과 8개, 보정 하한
+-0.000025835514388855376, DSR/bootstrap 표본 부족·리뷰 false·deployment_ready=false입니다.
+같은 root의 연구 재개와 holdout cache 재조회도 확인했습니다. 실제 주문 0, 승격 false입니다.
+
+- engine: `sha256:967124e0bc384ffad7bddf349c7c3190105902226d2fc734cba59da0798503b7`
+- model: `sha256:8db54b7850906291f8a3a0fbf01993ee5369316a8de34cbd88ffa7a0378922f1`
+- report: `d1a2de9e14e0c6775a807c5cc714dc468485783a04ab3fee21295557285a2627`
+- holdout: `48bec0176088cc4f211f39063378e555dc2e47d5a479af6b2122845cbde288e8`
+
+재현 명령은 [RSI Workflow](../../research/README.md#rsi-workflow)를 따릅니다.
+최신 8768 화면은 이 보안 runtime의 합성 장부를 읽습니다. 8767은 이전 장부를 읽는 과거 화면입니다.
+
+### Current Verification and Boundaries
+
+2026-10-02 W8 최신 로컬 검사: **698 passed, 2 skipped, 1 warning**. Ruff lint/format,
+strict Pyright, lock·4종 schema·JavaScript 구문·diff 검사를 통과했습니다. 2 skips는 Windows
+symlink 권한 제한, warning은 Starlette TestClient의 HTTPX 사용 중단 예정 알림입니다.
+이전 693/696개 기록이나 부분 검사를 합산하지 않았습니다.
+
+새 최종 로컬 root는 `.local/rsi-w8-20261002/`입니다. 현재 코드·보안 runtime에서 수집 12주기,
+연구 4주기, 학습 제안 2회와 ElasticNet holdout 8개 실제 엔진 결과를 다시 실행하고 재개·cache를 확인했습니다.
+모든 후보 REJECTED, 보정 하한 -0.000025835514388855376, 표본 부족·리뷰 false·승격 false·실제 주문 0입니다.
+report SHA-256은 `d1a2de9e14e0c6775a807c5cc714dc468485783a04ab3fee21295557285a2627`,
+holdout SHA-256은 `03c6e6004394227402e1bddf01feb75f625100bcea597f3ace4337cf84a4a20e`입니다.
+engine/model image는 직전 보안 runtime의 `967124e0...`/`8db54b78...`와 동일합니다.
+
+추가로 확인한 내용:
+
+- `exchange-filings` scope와 `exchange_only=True`를 함께 요구하는 DART `pblntf_ty=I` 경로입니다.
+   KIND 직접 API로 표시하지 않으며 전체 공시 일정과 혼용하지 않습니다. 공식 목록 규약에는 정정
+   원공시의 접수번호 필드가 없어 제목으로 추정하지 않습니다. 명시적 관계가 있을 때만 검증합니다.
+- KRX 유가증권·코스닥·코넥스 기본정보의 공식 상세/DOCX/정적 예제를 확인했습니다. 고정 endpoint,
+   scope, `AUTH_KEY`, `basDd`, `OutBlock_1`을 오프라인 검증했습니다. 코넥스는 2013-07-01부터,
+   나머지는 2010-01-04부터입니다. 실제 권리·역사적 적격성이 검증됐다는 플래그는 여전히 false입니다.
+- 승인된 자료 분류와 실제 소스 분류가 다르면 HTTP/저장 전에 거절합니다. 공개 루머는 승인된
+   PUBLIC_CHANNEL/PUBLIC_COMMUNITY 분류만, 거래소 공시는 해당 별도 범위만 사용합니다.
+- 게시물 단위 철회는 해당 소스의 신규 수집을 보수적으로 격리합니다. 해시가 다른 바이트로의 재유입도
+   차단하고 최신 격리 기록을 과거 백업 복구에 병합합니다. 자동 해제는 없으며 운영자 검토가 필요합니다.
+   최신 campaign의 임시 복원본에서 원문/파생물 13개 제거·연구 차단·격리 복구를 확인했고 원본은 보존했습니다.
+- 기본 RAW는 기업행동 자동 신호를 거절합니다. 명시적 TOTAL_RETURN과 부모 전략의 고정
+   `signal.total_return_adjustment=1`에서만 조정 지수를 사용합니다. 실제 Ridge/ElasticNet 입력에서도
+   분할만으로 모멘텀 신호가 생기지 않았으며 원시 체결 가격은 그대로입니다. GP는 성과를 뒤집었을 때
+   다음 제안을 `[4,-1,0,1]`에서 `[3,1,0,0]`으로 바꿨습니다. 수익성 인증이 아닌 반증 시험입니다.
+- RSA 테스트 키는 메모리에서만 생성·폐기했습니다. 실제 운영 키 생성/교체는 없습니다. 정상 RS256과
+   알고리즘 대체 거절, 검토 이후/전략 생성 이전의 증거 거절을 확인했습니다.
+- 8768 화면은 최신 W8 root를 읽습니다. 합성 중단→재개로 감사 2건→4건을 확인했고 VIEWER 변경 금지,
+   지연 표시, 잘못된 토큰 뒤 자료·대상 제거, nonblank chart를 확인했습니다. 요청 viewport 1440/390에
+   브라우저가 보고한 CSS 폭은 1152/312였으며 두 경우 페이지 넘침이 없고 좁은 표는 내부 스크롤입니다.
+
+남은 범위를 단순 승인 대기나 완료로 바꾸지 않습니다:
+
+| 구분 | 남아 있는 항목 | 다음 진행에 필요한 것 |
+| --- | --- | --- |
+| 원천 계약/자료 | KIND 직접 연동, 정정 원공시의 검증 가능한 연결, 실제 과거 별칭·적격 종목·달력 | 허용된 공식 규약·제공자/채널 선택·권리/보존 범위와 원천 근거. 비공식 scraping으로 대체하지 않음 |
+| 추가 시장 구현/미검증 | 역분할·단주·합병·상장폐지 현금 정산, 실 KRX 호가/세금/결제·유동성 calibration | 원천별 정산·가격 조정 규약과 검증 자료 확정. 현재 명시적 합성 모델을 이들 전체의 구현으로 확대 해석하지 않음 |
+| 미검증 운영 증거 | 실제 시장 성과, 실제 독립 관측자·신원·public-key trust, 실제 20 paper 세션 | 현재 금지된 실제 수집/계좌/주문 없이 증거를 만들 수 없음; 별도 권한과 신뢰할 발급자 설정 필요 |
+| 운영 범위 | 실제 스케줄러 배치·상주 운영·외부 경보·전체 백업 재해 복구 | 실행 승인과 운영/보존 정책, 관리 대상 저장소·백업 목록. 관리 밖 복사본의 삭제를 보장하지 않음 |
+| 정책 결정 | ADR 0004 별도 challenger paper 시험 권한 | 명시적 채택 결정 후 계약 구현/검증, 실제 실행은 다시 별도 승인. 기존 champion 검사 유지 |
+
+현재 구현은 미확정 시장 사건·미확보 자료를 거절하는 쪽으로 동작합니다. 추가 시장 모델의 미구현과
+실자료 검증 금지, 운영 승인을 구분합니다. **A-E 전체 및 실운영 준비는 여전히 미완료**입니다.
+위 경계가 풀리기 전 정책/원천 근거를 만들어내거나 비밀·실행 권한을 임의로 확장하지 않습니다.
+
+보안 재빌드의 runner 프로젝트에 `dotnet list package --vulnerable --include-transitive --no-restore`
+공식 NuGet advisory 조회를 추가 실행했습니다. 응답에 취약 패키지가 보고되지 않았고 exit 0이었습니다.
+SDK workload 검증 안내 경고는 남았으며 workload 설치/업데이트나 warning 숨김은 하지 않았습니다.
+이 결과는 해당 시점의 advisory/lock 범위이며 upstream 분석 경고나 운영 공격면 전체의 부재를 증명하지 않습니다.
+
+공식 후속 문서:
+
+- [코스닥 기본정보](https://openapi.krx.co.kr/contents/OPP/USES/service/OPPUSES002_S2.cmd?BO_ID=CifLHplnUFMgpHIMMPXs)
+- [코넥스 기본정보](https://openapi.krx.co.kr/contents/OPP/USES/service/OPPUSES002_S2.cmd?BO_ID=COgTLqgmGlqyJvaEFNIc)
+
+문서와 정적 예제만 읽었고 샘플/운영 데이터 요청·키 신청·배포·커밋/푸시는 하지 않았습니다.
 
 ## Local Implementation Decisions
 
@@ -196,16 +361,17 @@ visible/aria-selected 검사로 확인했습니다. 앞선 desktop/mobile 스크
    화면 우회나 pykrx로 채우지 않았으며 실제 이용/보존·서비스별 키 승인은 별도입니다.
 2. DART 정정 원공시 연결, 명시적 삭제/tombstone과 모든 파생 자료의 보존 만료 전파, 실제 과거
    별칭·전체 적격 종목 자료가 남습니다. Telegram은 검증된 공개 export 수용이지 상주 bot 수집이 아닙니다.
-3. 실제 KRX 기업행동/정지/상장폐지/호가·체결 모델이 남습니다. 미해결 기업행동은 현재 거절합니다.
-   portfolio는 독립 sleeve 결과를 합산 검증하며 완전한 공유 주문장/체결 모델이 아닙니다.
-4. 영속 holdout과 연구 점수 분리는 구현됐지만 DSR/regime/capacity 통합 gate, 검증 통과 후보의
+3. 공유 현금·명시적 합성 분할/순배당·tick/capacity는 후속 구현됐습니다. 실제 KRX 사건/정산/자료
+   인증과 위 추가 시장 모델은 남습니다. 미해결 기업행동이나 거래 중단 후 가짜 청산은 거절합니다.
+4. 영속 holdout과 연구 점수 분리·DSR/block bootstrap/regime/capacity gate는 구현됐지만 검증 통과 후보의
    실제 paper/shadow 전환과 예산/감사 연결은 남습니다. 기존 champion 조건과 challenger paper
    세션의 승인 경계는 [검토용 ADR 0004](../adr/0004-paper-trial-authorization.md)에 기록했습니다.
    아직 승인하지 않았습니다. 현재 검증으로 A-E 전체를 완료 처리하지 않습니다.
-5. PromotionBundle의 verified_reports/paper_sessions는 신뢰된 provider가 제공해야 합니다.
-   현재 gate 계약/인간 신원/동시 선택/리플레이는 검사하지만 독립 보고서 서명/원천 자료 인증은 미연결입니다.
+5. PromotionBundle은 후속 독립 서명 검증기 없이 선택할 수 없습니다. 실제 발급자·운영 신원·원천의
+   사실성은 별도 신뢰 설정이 필요하며 합성 서명 시험이 이를 대신하지 않습니다.
    실제 검증된 20세션이 없으며 합성 세션 목록은 운영 증거가 아닙니다. 선택과 broker 활성화는 분리됩니다.
-6. 알려진 DotNetZip 1.16.0 GHSA-xhg6-9j5j-w4vf는 미해결입니다. 다른 패치 버전은
+6. DotNetZip 1.16.0 GHSA-xhg6-9j5j-w4vf는 후속 보안 재빌드 경로에서 대체·회귀 검증했습니다.
+   과거/기본 legacy runtime은 여전히 영향을 받습니다. 다른 패치 버전은
    System.Drawing.Common/WinHttpHandler/PKCS 10.0.12, Private.ServiceModel/ServiceModel.Primitives 4.10.3입니다.
    격리·고정 합성 입력은 잔존 취약점의 해결이나 운영 배포 승인이 아닙니다.
 

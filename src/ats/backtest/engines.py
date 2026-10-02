@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 from datetime import UTC, date, datetime, time
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Annotated, Literal, Self
 from uuid import uuid4
@@ -26,11 +27,61 @@ from ats.domain.research import (
     ExperimentRun,
     ExperimentStatus,
 )
-from ats.domain.strategy import ArtifactRef, FrozenModel, Sha256Digest, StrategyFamily
+from ats.domain.strategy import (
+    ArtifactRef,
+    FrozenModel,
+    Identifier,
+    Sha256Digest,
+    StrategyFamily,
+)
 from ats.ports import EvaluationOutput, EvaluationRequest
 
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+ENGINE_ABSOLUTE_TOLERANCE = 1e-7
+
+
+def execution_price(
+    price: float, *, buy: bool, slippage: float, tick: float | None
+) -> float:
+    value = Decimal(str(price)) * (1 + Decimal(str(slippage)) * (1 if buy else -1))
+    if tick is not None:
+        unit = Decimal(str(tick))
+        value = (value / unit).to_integral_value(
+            rounding=ROUND_CEILING if buy else ROUND_FLOOR
+        ) * unit
+    return float(value)
+
+
+class CorporateAction(FrozenModel):
+    action_id: Identifier
+    kind: Literal["FORWARD_SPLIT", "NET_CASH_DIVIDEND"]
+    session: date
+    known_at: AwareDatetime
+    evidence: ArtifactRef
+    new_shares_per_old: Annotated[int, Field(strict=True, ge=1, le=100)] = 1
+    net_cash_per_share: Nonnegative = 0
+    payment_session: date | None = None
+
+    @model_validator(mode="after")
+    def valid_action(self) -> Self:
+        if self.kind == "FORWARD_SPLIT":
+            if (
+                self.new_shares_per_old < 2
+                or self.net_cash_per_share
+                or self.payment_session is not None
+            ):
+                raise ValueError("forward split requires only an integer share ratio")
+        elif (
+            self.new_shares_per_old != 1
+            or self.net_cash_per_share <= 0
+            or self.payment_session is None
+            or self.payment_session < self.session
+        ):
+            raise ValueError(
+                "dividend requires a net amount and a valid payment session"
+            )
+        return self
 
 
 class EngineCase(FrozenModel):
@@ -42,7 +93,12 @@ class EngineCase(FrozenModel):
     next_session: date
     buy_fee: Annotated[float, Field(ge=0, le=0.1, allow_inf_nan=False)]
     sell_fee: Annotated[float, Field(ge=0, le=0.1, allow_inf_nan=False)]
-    slippage: Literal[0]
+    slippage: Annotated[float, Field(ge=0, le=0.05, allow_inf_nan=False)]
+    price_tick: Positive | None = None
+    corporate_actions: Annotated[tuple[CorporateAction, ...], Field(max_length=32)] = ()
+    opening_capacity: (
+        tuple[Annotated[int, Field(strict=True, ge=0, le=1000000)], ...] | None
+    ) = None
     dates: Annotated[tuple[date, ...], Field(min_length=2, max_length=512)]
     open: tuple[Positive, ...]
     close: tuple[Positive, ...]
@@ -61,18 +117,76 @@ class EngineCase(FrozenModel):
             raise ValueError(
                 "ordered calendar and complete equal-length prices required"
             )
-        if self.quantity * max(self.open) > self.initial_cash * 0.1:
+        if (
+            self.quantity
+            * execution_price(
+                max(self.open), buy=True, slippage=self.slippage, tick=self.price_tick
+            )
+            > self.initial_cash * 0.1
+        ):
             raise ValueError("synthetic size exceeds initial concentration limit")
-        if self.quantity > min(self.volume) * 0.1:
+        if self.opening_capacity is None and self.quantity > min(self.volume) * 0.1:
             raise ValueError("synthetic size exceeds volume participation limit")
-        for price in (*self.open, *self.close):
+        if self.opening_capacity is not None and (
+            len(self.opening_capacity) != len(self.dates)
+            or any(
+                capacity > volume * 0.1
+                for capacity, volume in zip(
+                    self.opening_capacity, self.volume, strict=True
+                )
+            )
+        ):
+            raise ValueError(
+                "opening capacity must cover sessions within volume limits"
+            )
+        for price in (
+            *self.open,
+            *self.close,
+            *(
+                execution_price(
+                    price, buy=side == 1, slippage=self.slippage, tick=self.price_tick
+                )
+                for price in self.open
+                for side in (-1, 1)
+            ),
+        ):
+            if price <= 0:
+                raise ValueError("tick rounding produces a nonpositive execution price")
             if struct.unpack("<f", struct.pack("<f", price))[0] != price:
                 raise ValueError(
                     "price cannot be represented exactly by the Qlib provider"
                 )
+        if len({action.action_id for action in self.corporate_actions}) != len(
+            self.corporate_actions
+        ) or len({action.session for action in self.corporate_actions}) != len(
+            self.corporate_actions
+        ):
+            raise ValueError(
+                "corporate action identities and ex-sessions must be unique"
+            )
+        for action in self.corporate_actions:
+            if (
+                action.session not in self.dates[1:]
+                or action.payment_session is not None
+                and action.payment_session not in self.dates
+                or action.known_at
+                >= datetime.combine(action.session, time(8), tzinfo=SEOUL)
+            ):
+                raise ValueError(
+                    "corporate action requires known terms and full ex/payment calendar"
+                )
         for index in range(1, len(self.dates)):
+            reference = self.close[index - 1]
+            for action in self.corporate_actions:
+                if action.session == self.dates[index]:
+                    reference = (
+                        reference / action.new_shares_per_old
+                        - action.net_cash_per_share
+                    )
+            if reference <= 0:
+                raise ValueError("corporate action implies nonpositive reference price")
             if any(
-                abs(value / self.close[index - 1] - 1) >= 0.3
+                abs(value / reference - 1) >= 0.3
                 for value in (self.open[index], self.close[index])
             ):
                 raise ValueError(
@@ -98,15 +212,65 @@ class TargetEngineCase(EngineCase):
         for session, decided in zip(self.dates, self.decided_at, strict=True):
             if decided >= datetime.combine(session, time(9), tzinfo=SEOUL):
                 raise ValueError("signal was unavailable before execution")
+        for action in self.corporate_actions:
+            if action.known_at > self.decided_at[self.dates.index(action.session)]:
+                raise ValueError("corporate action was unknown at target decision")
+        return self
+
+
+class EngineAsset(FrozenModel):
+    instrument_id: Identifier
+    case: TargetEngineCase
+
+
+class SharedEngineCase(EngineCase):
+    api_version: Literal["ats/shared-engine-v1"] = "ats/shared-engine-v1"
+    assets: Annotated[tuple[EngineAsset, ...], Field(min_length=2, max_length=10)]
+    cash_settlement_sessions: Annotated[int, Field(strict=True, ge=0, le=5)] = 0
+
+    @model_validator(mode="after")
+    def common_account(self) -> Self:
+        if len({asset.instrument_id for asset in self.assets}) != len(self.assets):
+            raise ValueError("shared portfolio instruments must be unique")
+        for asset in self.assets:
+            if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", asset.instrument_id):
+                raise ValueError("unsupported engine instrument identifier")
+            if (
+                asset.case.buy_fee != self.buy_fee
+                or asset.case.sell_fee != self.sell_fee
+            ):
+                raise ValueError("shared portfolio requires common fee rates")
+            if (
+                asset.case.dates != self.dates
+                or asset.case.next_session != self.next_session
+                or asset.case.initial_cash != self.initial_cash
+            ):
+                raise ValueError("shared portfolio calendar and cash must match")
         return self
 
 
 def _case(value: EngineCase) -> EngineCase:
-    model = TargetEngineCase if isinstance(value, TargetEngineCase) else EngineCase
-    return model.model_validate(value.model_dump())
+    model = (
+        SharedEngineCase
+        if isinstance(value, SharedEngineCase)
+        else TargetEngineCase
+        if isinstance(value, TargetEngineCase)
+        else EngineCase
+    )
+    validated = model.model_validate(value.model_dump())
+    if validated.corporate_actions and not isinstance(
+        validated, (TargetEngineCase, SharedEngineCase)
+    ):
+        raise ValueError(
+            "corporate actions require explicit raw-share target decisions"
+        )
+    if isinstance(validated, SharedEngineCase):
+        shared_account_reference(validated)
+    return validated
 
 
 class EngineFill(FrozenModel):
+    instrument_id: Identifier | None = None
     date: date
     side: Literal["BUY", "SELL"]
     quantity: Positive
@@ -135,15 +299,198 @@ class EngineEvidence(FrozenModel):
     result: EngineResult
 
 
+def engine_results_match(first: EngineResult, second: EngineResult) -> bool:
+    if (
+        first.input_sha256 != second.input_sha256
+        or len(first.fills) != len(second.fills)
+        or len(first.equity) != len(second.equity)
+    ):
+        return False
+    for left, right in zip(first.fills, second.fills, strict=True):
+        if (
+            left.instrument_id != right.instrument_id
+            or left.date != right.date
+            or left.side != right.side
+            or any(
+                abs(getattr(left, field) - getattr(right, field))
+                > ENGINE_ABSOLUTE_TOLERANCE
+                for field in ("quantity", "price", "cost")
+            )
+        ):
+            return False
+    return all(
+        abs(left - right) <= ENGINE_ABSOLUTE_TOLERANCE
+        for left, right in zip(first.equity, second.equity, strict=True)
+    )
+
+
+def apply_corporate_actions(
+    case: EngineCase,
+    index: int,
+    held: float,
+    pending: dict[str, float],
+) -> tuple[float, float]:
+    session = case.dates[index]
+    for action in case.corporate_actions:
+        if action.session == session:
+            if action.kind == "FORWARD_SPLIT":
+                held *= action.new_shares_per_old
+            else:
+                pending[action.action_id] = held * action.net_cash_per_share
+    paid = sum(
+        pending.pop(action.action_id, 0)
+        for action in case.corporate_actions
+        if action.payment_session == session
+    )
+    return held, paid
+
+
+def shared_account_reference(
+    case: SharedEngineCase,
+) -> tuple[tuple[EngineFill, ...], tuple[float, ...]]:
+    cash = case.initial_cash
+    holdings = {asset.instrument_id: 0 for asset in case.assets}
+    dividends: dict[str, dict[str, float]] = {
+        asset.instrument_id: {} for asset in case.assets
+    }
+    fills: list[EngineFill] = []
+    equity: list[float] = []
+    peak = previous = case.initial_cash
+    halted = False
+    unsettled: list[tuple[int, float]] = []
+    for index, session in enumerate(case.dates):
+        for asset in case.assets:
+            units, paid = apply_corporate_actions(
+                asset.case,
+                index,
+                holdings[asset.instrument_id],
+                dividends[asset.instrument_id],
+            )
+            holdings[asset.instrument_id] = int(units)
+            cash += paid
+        receivable = sum(sum(pending.values()) for pending in dividends.values())
+        unsettled = [
+            (release, amount) for release, amount in unsettled if release > index
+        ]
+        opening_equity = (
+            cash
+            + receivable
+            + sum(
+                holdings[asset.instrument_id] * asset.case.open[index]
+                for asset in case.assets
+            )
+        )
+        halted = (
+            halted or opening_equity <= previous * 0.99 or opening_equity <= peak * 0.85
+        )
+        ordered = sorted(
+            case.assets,
+            key=lambda asset: (
+                asset.case.targets[index] > holdings[asset.instrument_id],
+                asset.instrument_id,
+            ),
+        )
+        for asset in ordered:
+            target = asset.case.targets[index]
+            change = target - holdings[asset.instrument_id]
+            if asset.case.opening_capacity is not None:
+                change = min(abs(change), asset.case.opening_capacity[index]) * (
+                    1 if change > 0 else -1
+                )
+                target = holdings[asset.instrument_id] + change
+            if not change:
+                continue
+            if halted:
+                raise ValueError("shared portfolio order after loss halt")
+            price = execution_price(
+                asset.case.open[index],
+                buy=change > 0,
+                slippage=asset.case.slippage,
+                tick=asset.case.price_tick,
+            )
+            cost = (
+                abs(change)
+                * price
+                * (asset.case.buy_fee if change > 0 else asset.case.sell_fee)
+            )
+            if (
+                change > 0
+                and change * price + cost
+                > cash
+                - sum(amount for _, amount in unsettled)
+                + ENGINE_ABSOLUTE_TOLERANCE
+            ):
+                raise ValueError(
+                    "shared portfolio cannot spend unsettled sale proceeds"
+                )
+            if change > 0 and target * price > opening_equity * 0.1 + 1e-7:
+                raise ValueError("shared portfolio concentration exceeded")
+            cash -= change * price + cost
+            if change < 0 and case.cash_settlement_sessions:
+                unsettled.append(
+                    (index + case.cash_settlement_sessions, -change * price - cost)
+                )
+            if cash < -1e-7 or target < 0:
+                raise ValueError("shared portfolio cannot borrow or short")
+            holdings[asset.instrument_id] = target
+            fills.append(
+                EngineFill(
+                    instrument_id=asset.instrument_id,
+                    date=session,
+                    side="BUY" if change > 0 else "SELL",
+                    quantity=abs(change),
+                    price=price,
+                    cost=cost,
+                )
+            )
+        value = (
+            cash
+            + receivable
+            + sum(
+                holdings[asset.instrument_id] * asset.case.close[index]
+                for asset in case.assets
+            )
+        )
+        peak = max(peak, value)
+        halted = halted or value <= previous * 0.99 or value <= peak * 0.85
+        equity.append(value)
+        previous = value
+    return tuple(fills), tuple(equity)
+
+
 def validate_engine_result(case: EngineCase, result: EngineResult) -> None:
     case = _case(case)
     result = EngineResult.model_validate(result.model_dump())
     if len(result.equity) != len(case.dates):
         raise ValueError("engine result does not cover every requested session")
+    if isinstance(case, SharedEngineCase):
+        fills, shared_curve = shared_account_reference(case)
+        if len(fills) != len(result.fills):
+            raise ValueError("shared portfolio fill count mismatch")
+        for actual, expected_fill in zip(result.fills, fills, strict=True):
+            if (
+                actual.instrument_id != expected_fill.instrument_id
+                or actual.date != expected_fill.date
+                or actual.side != expected_fill.side
+                or any(
+                    abs(getattr(actual, field) - getattr(expected_fill, field)) > 1e-7
+                    for field in ("quantity", "price", "cost")
+                )
+            ):
+                raise ValueError("shared portfolio fill mismatch")
+        if any(
+            abs(actual - expected) > 1e-7
+            for actual, expected in zip(result.equity, shared_curve, strict=True)
+        ):
+            raise ValueError("shared portfolio cash conservation mismatch")
+        return
     cash, held = case.initial_cash, 0.0
+    dividends: dict[str, float] = {}
     expected: list[EngineFill] = []
     curve: list[float] = []
     for index, session in enumerate(case.dates):
+        held, paid = apply_corporate_actions(case, index, held, dividends)
+        cash += paid
         history = case.close[max(0, index - case.lookback) : index]
         long = len(history) == case.lookback and history[-1] > sum(history) / len(
             history
@@ -156,8 +503,17 @@ def validate_engine_result(case: EngineCase, result: EngineResult) -> None:
             else 0.0
         )
         difference = target - held
+        if case.opening_capacity is not None:
+            difference = min(abs(difference), case.opening_capacity[index]) * (
+                1 if difference > 0 else -1
+            )
         if difference:
-            price = case.open[index]
+            price = execution_price(
+                case.open[index],
+                buy=difference > 0,
+                slippage=case.slippage,
+                tick=case.price_tick,
+            )
             value = abs(difference) * price
             fee = value * (case.buy_fee if difference > 0 else case.sell_fee)
             if difference > 0 and (
@@ -167,7 +523,7 @@ def validate_engine_result(case: EngineCase, result: EngineResult) -> None:
                     "synthetic order fails independent cash or concentration check"
                 )
             cash -= difference * price + fee
-            held = target
+            held += difference
             expected.append(
                 EngineFill(
                     date=session,
@@ -177,7 +533,7 @@ def validate_engine_result(case: EngineCase, result: EngineResult) -> None:
                     cost=fee,
                 )
             )
-        curve.append(cash + held * case.close[index])
+        curve.append(cash + sum(dividends.values()) + held * case.close[index])
     if len(expected) != len(result.fills):
         raise ValueError("engine fills differ from prior-close next-open decisions")
     for actual, reference in zip(result.fills, expected, strict=True):

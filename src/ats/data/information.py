@@ -197,6 +197,19 @@ class InformationClient:
             for entry in self.policy.sources
             if entry.source_id == self.source.source_id
         )
+        categories = {self.source.category}
+        if self.source.category == "PUBLIC_RUMOR":
+            categories = {"PUBLIC_CHANNEL", "PUBLIC_COMMUNITY"}
+        elif (
+            self.source.category == "DISCLOSURE"
+            and self.source.format == "DART"
+            and "exchange-filings" in self.source.allowed_scope
+        ):
+            categories.add("EXCHANGE")
+        if entry.category.value not in categories:
+            raise InformationError(
+                "source category differs from approved source policy"
+            )
         if entry.rate_limit_per_minute is None:
             raise InformationError("explicit source rate required")
         return entry.rate_limit_per_minute
@@ -277,6 +290,7 @@ def collect_dart(
     end: date,
     key: SecretStr,
     include_documents: bool = False,
+    exchange_only: bool = False,
 ) -> InformationBatch:
     if (
         client.source.format != "DART"
@@ -285,7 +299,13 @@ def collect_dart(
         or end > client.clock().astimezone(SEOUL).date()
     ):
         raise InformationError("DART requires a bounded nonfuture date range")
-    if "all-filings" not in client.source.allowed_scope or not key.get_secret_value():
+    scope = "exchange-filings" if exchange_only else "all-filings"
+    if (
+        type(exchange_only) is not bool
+        or scope not in client.source.allowed_scope
+        or {"all-filings", "exchange-filings"}.issubset(client.source.allowed_scope)
+        or not key.get_secret_value()
+    ):
         raise InformationError("DART scope or key unavailable")
     if include_documents and "original-documents" not in client.source.allowed_scope:
         raise InformationError("original document scope is not approved")
@@ -299,6 +319,7 @@ def collect_dart(
                 "bgn_de": start.strftime("%Y%m%d"),
                 "end_de": end.strftime("%Y%m%d"),
                 "last_reprt_at": "N",
+                **({"pblntf_ty": "I"} if exchange_only else {}),
                 "sort": "date",
                 "sort_mth": "asc",
                 "page_count": "100",

@@ -1,8 +1,11 @@
+import asyncio
 import io
 import json
+import sqlite3
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict
 
 import httpx
 import pytest
@@ -21,10 +24,23 @@ from ats.data.information_analysis import AnalysisPolicy, analyze_information
 from ats.data.information_jobs import (
     InformationSchedule,
     InformationStore,
+    ScheduledCollector,
     run_information_schedule,
+    run_information_sweep,
+    serve_information,
 )
-from ats.data.krx_reference import ENDPOINT, collect_krx_reference
-from ats.data.storage import LocalPayloadStore, StoragePermit
+from ats.data.krx_reference import (
+    ENDPOINT,
+    KONEX_ENDPOINT,
+    KOSDAQ_ENDPOINT,
+    collect_krx_reference,
+)
+from ats.data.storage import (
+    LocalPayloadStore,
+    PayloadManifest,
+    StorageError,
+    StoragePermit,
+)
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import SourceAllowlist
 from ats.domain.prices import SEOUL
@@ -32,7 +48,15 @@ from ats.domain.prices import SEOUL
 NOW = datetime(2026, 10, 2, tzinfo=UTC)
 
 
-def configuration(source_id: str = "dart") -> tuple[SourceAllowlist, StoragePermit]:
+class StorageArguments(TypedDict):
+    now: datetime
+    source_policy: SourceAllowlist
+    permit: StoragePermit
+
+
+def configuration(
+    source_id: str = "dart", category: str = "DISCLOSURE"
+) -> tuple[SourceAllowlist, StoragePermit]:
     metadata = {
         "policy_id": "synthetic-info",
         "version": "1",
@@ -46,7 +70,7 @@ def configuration(source_id: str = "dart") -> tuple[SourceAllowlist, StoragePerm
             "sources": [
                 {
                     "source_id": source_id,
-                    "category": "DISCLOSURE",
+                    "category": category,
                     "enabled": True,
                     "legal_review": "APPROVED",
                     "rights": {
@@ -142,6 +166,174 @@ def test_dart_preserves_date_precision_correction_and_raw(tmp_path: Path) -> Non
     client.close()
 
 
+def test_exchange_disclosures_require_separate_scope_and_keep_dart_provenance(
+    tmp_path: Path,
+) -> None:
+    policy, permit = configuration("dart-exchange", "EXCHANGE")
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.params["pblntf_ty"] == "I"
+        assert request.url.params["last_reprt_at"] == "N"
+        return httpx.Response(200, json=dart_body())
+
+    client = InformationClient(
+        source(source_id="dart-exchange", allowed_scope=["exchange-filings"]),
+        policy,
+        permit,
+        LocalPayloadStore(tmp_path / "exchange.sqlite3"),
+        transport=httpx.MockTransport(respond),
+        clock=lambda: NOW,
+    )
+    with pytest.raises(InformationError, match="scope"):
+        collect_dart(
+            client,
+            start=date(2026, 10, 1),
+            end=date(2026, 10, 1),
+            key=SecretStr("synthetic"),
+        )
+    assert not requests
+    batch = collect_dart(
+        client,
+        start=date(2026, 10, 1),
+        end=date(2026, 10, 1),
+        key=SecretStr("synthetic"),
+        exchange_only=True,
+    )
+    assert len(requests) == 1 and batch.source_digest == evidence_digest(client.source)
+    assert batch.observations[0].source_id == "dart-exchange"
+    assert batch.observations[0].url.startswith("https://dart.fss.or.kr/")
+    client.close()
+
+
+def test_withdrawal_removes_transitive_derivatives_and_prevents_reentry(
+    tmp_path: Path,
+) -> None:
+    policy, permit = configuration()
+    store = LocalPayloadStore(tmp_path / "retention.sqlite3")
+    arguments: StorageArguments = {
+        "now": NOW,
+        "source_policy": policy,
+        "permit": permit,
+    }
+    raw = store.put(b"synthetic original", observed_at=NOW, **arguments)
+    child = store.put(
+        b"synthetic derived", observed_at=NOW, parents=(raw,), **arguments
+    )
+    leaf = store.put(
+        b"synthetic feature", observed_at=NOW, parents=(child,), **arguments
+    )
+    unrelated = store.put(b"synthetic unrelated", observed_at=NOW, **arguments)
+    store.bind_manifest(
+        PayloadManifest(name="synthetic-manifest", payload=leaf), **arguments
+    )
+    assert store.read(leaf, **arguments) == b"synthetic feature"
+    with pytest.raises(StorageError, match="immutable"):
+        store.put(b"synthetic derived", observed_at=NOW, **arguments)
+    assert store.withdraw(raw, **arguments) == 3
+    restarted = LocalPayloadStore(store.database)
+    for receipt in (raw, child, leaf):
+        with pytest.raises(StorageError, match="missing"):
+            restarted.read(receipt, **arguments)
+    with pytest.raises(StorageError, match="tombstoned"):
+        restarted.put(b"synthetic original", observed_at=NOW, **arguments)
+    with pytest.raises(StorageError, match="missing"):
+        restarted.resolve_manifest("synthetic-manifest", **arguments)
+    assert restarted.read(unrelated, **arguments) == b"synthetic unrelated"
+
+
+def test_derivative_retention_and_source_integrity(tmp_path: Path) -> None:
+    policy, permit = configuration()
+    permit = permit.model_copy(update={"expires_at": NOW + timedelta(days=5)})
+    store = LocalPayloadStore(tmp_path / "derived.sqlite3")
+    arguments: StorageArguments = {
+        "now": NOW,
+        "source_policy": policy,
+        "permit": permit,
+    }
+    raw = store.put(b"synthetic raw", observed_at=NOW, **arguments)
+    later = NOW + timedelta(hours=12)
+    arguments["now"] = later
+    child = store.put(
+        b"synthetic derived", observed_at=later, parents=(raw,), **arguments
+    )
+    assert child.expires_at == raw.expires_at
+    assert store.read(child, **arguments) == b"synthetic derived"
+    with sqlite3.connect(store.database) as connection:
+        connection.execute(
+            "UPDATE payloads SET payload=? WHERE digest=?", (b"tampered", raw.digest)
+        )
+    with pytest.raises(StorageError, match="integrity"):
+        store.read(child, **arguments)
+    assert store.purge_expired(now=raw.expires_at) == 2
+
+
+def test_data_backup_restore_preserves_tombstones_and_rejects_other_ledgers(
+    tmp_path: Path,
+) -> None:
+    policy, permit = configuration()
+    store = LocalPayloadStore(tmp_path / "original.sqlite3")
+    arguments: StorageArguments = {
+        "now": NOW,
+        "source_policy": policy,
+        "permit": permit,
+    }
+    removed = store.put(b"withdrawn fixture", observed_at=NOW, **arguments)
+    retained = store.put(b"retained fixture", observed_at=NOW, **arguments)
+    store.withdraw(removed, **arguments)
+    backup = tmp_path / "backup.sqlite3"
+    digest = store.backup(backup)
+    restored = LocalPayloadStore.restore_data_backup(
+        backup,
+        tmp_path / "restored.sqlite3",
+        expected_digest=digest,
+        now=NOW,
+        retention_authority=store,
+    )
+    assert restored.read(retained, **arguments) == b"retained fixture"
+    with pytest.raises(StorageError, match="tombstoned"):
+        restored.put(b"withdrawn fixture", observed_at=NOW, **arguments)
+    with pytest.raises(StorageError, match="new backup"):
+        store.backup(backup)
+    with pytest.raises(StorageError, match="digest"):
+        LocalPayloadStore.restore_data_backup(
+            backup,
+            tmp_path / "corrupt.sqlite3",
+            expected_digest="sha256:" + "0" * 64,
+            now=NOW,
+            retention_authority=store,
+        )
+    assert not (tmp_path / "corrupt.sqlite3").exists()
+    expired = LocalPayloadStore.restore_data_backup(
+        backup,
+        tmp_path / "expired.sqlite3",
+        expected_digest=digest,
+        now=retained.expires_at,
+        retention_authority=store,
+    )
+    with sqlite3.connect(expired.database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM payloads").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM payload_tombstones").fetchone()[0]
+            == 2
+        )
+    store.withdraw(retained, **arguments)
+    latest = LocalPayloadStore.restore_data_backup(
+        backup,
+        tmp_path / "latest.sqlite3",
+        expected_digest=digest,
+        now=NOW,
+        retention_authority=store,
+    )
+    with pytest.raises(StorageError, match="missing"):
+        latest.read(retained, **arguments)
+    with sqlite3.connect(store.database) as connection:
+        connection.execute("CREATE TABLE champion_pointer (digest TEXT)")
+    with pytest.raises(StorageError, match="only data"):
+        store.backup(tmp_path / "unsafe.sqlite3")
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -196,6 +388,15 @@ def test_source_authority_precedes_network(tmp_path: Path) -> None:
             key=SecretStr("synthetic"),
         )
     assert not (tmp_path / "absent.sqlite3").exists()
+    client.source = source(
+        format="RSS",
+        category="NEWS",
+        endpoint="https://news.example.test/feed",
+        allowed_scope=["https://news.example.test/feed"],
+    )
+    with pytest.raises(InformationError, match="category"):
+        client.authorize()
+    assert not (tmp_path / "absent.sqlite3").exists()
     client.close()
 
 
@@ -237,7 +438,7 @@ def test_dart_original_document_is_bound_to_discovery(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("malicious", [False, True])
 def test_feed_window_and_xml_entity_rejection(tmp_path: Path, malicious: bool) -> None:
-    policy, permit = configuration("fixture-news")
+    policy, permit = configuration("fixture-news", "NEWS")
     endpoint = "https://news.example.test/feed"
     feed = b'<rss version="2.0"><channel><item><guid>story-1</guid><title>Fixture</title><description>Untrusted text</description><link>https://news.example.test/1</link><pubDate>Thu, 01 Oct 2026 12:00:00 GMT</pubDate></item></channel></rss>'
     if malicious:
@@ -343,11 +544,129 @@ def test_information_watermark_restart_failure_and_first_observation(
     assert (
         len(restarted.observations(at=NOW, now=NOW, policy=policy, permit=permit)) == 1
     )
+    bad = ScheduledCollector(
+        restarted,
+        schedule.model_copy(update={"schedule_id": "sweep-failed"}),
+        client,
+        fail,
+    )
+    good = ScheduledCollector(
+        restarted,
+        schedule.model_copy(update={"schedule_id": "sweep-healthy"}),
+        client,
+        collect,
+    )
+    sweep = run_information_sweep((bad, good), max_steps=4, guard=lambda: None)
+    assert sweep.failures == {"sweep-failed": "COLLECTION_FAILED"}
+    assert len(sweep.completed) == 1 and not sweep.budget_exhausted
+    health = {item.schedule_id: item for item in restarted.health(at=NOW)}
+    assert health["sweep-failed"].state == "FAILED"
+    assert health["sweep-healthy"].state == "CURRENT"
+    assert {
+        item.schedule_id: item for item in restarted.health(at=NOW + timedelta(days=2))
+    }["sweep-healthy"].state == "LATE"
+
+    async def exercise_service() -> None:
+        stop = asyncio.Event()
+        calls: list[int] = []
+
+        def receive(result: object) -> None:
+            calls.append(1)
+            stop.set()
+
+        assert (
+            await serve_information(
+                (good,),
+                stop=stop,
+                guard=lambda: None,
+                on_sweep=receive,
+                interval_seconds=1,
+                max_sweeps=3,
+            )
+            == 1
+        )
+        assert calls == [1]
+        assert (
+            await serve_information(
+                (good,), stop=stop, guard=lambda: None, on_sweep=receive
+            )
+            == 0
+        )
+
+    asyncio.run(exercise_service())
+    assert all("synthetic failure" not in value for value in sweep.failures.values())
+    pending = ScheduledCollector(
+        restarted,
+        schedule.model_copy(update={"schedule_id": "sweep-budget"}),
+        client,
+        collect,
+    )
+    limited = run_information_sweep((pending,), max_steps=1, guard=lambda: None)
+    assert limited.budget_exhausted and len(limited.completed) == 1
+
+    def halt() -> None:
+        raise ValueError("operator halted")
+
+    with pytest.raises(ValueError, match="halted"):
+        run_information_sweep((pending,), max_steps=1, guard=halt)
+    analysis_policy = AnalysisPolicy.model_validate(
+        {
+            "artifact": client.source.terms,
+            "sources": [
+                {
+                    "source_id": "dart",
+                    "publisher_group": "fixture-primary",
+                    "tier": "PRIMARY",
+                }
+            ],
+            "aliases": [],
+        }
+    )
+    analysis, manifest = restarted.retain_analysis(
+        "fixture-analysis",
+        analysis_policy,
+        at=NOW,
+        now=NOW,
+        policy=policy,
+        permit=permit,
+    )
+    assert (
+        restarted.read_analysis(manifest, now=NOW, policy=policy, permit=permit)
+        == analysis
+    )
+    raw = restarted.observations(at=NOW, now=NOW, policy=policy, permit=permit)[0].raw
+    backup = tmp_path / "pre-withdrawal.sqlite3"
+    backup_digest = restarted.backup(backup)
+    restarted.withdraw_item("20261001000001", now=NOW, policy=policy, permit=permit)
+    with pytest.raises(StorageError, match="missing"):
+        restarted.read_analysis(manifest, now=NOW, policy=policy, permit=permit)
+    with pytest.raises(StorageError, match="quarantined"):
+        client.authorize()
+    with pytest.raises(StorageError, match="quarantined"):
+        LocalPayloadStore(restarted.database).put(
+            b"different source bytes",
+            observed_at=NOW,
+            now=NOW,
+            source_policy=policy,
+            permit=permit,
+        )
+    assert all(item.state == "QUARANTINED" for item in restarted.health(at=NOW))
+    restored = LocalPayloadStore.restore_data_backup(
+        backup,
+        tmp_path / "post-withdrawal.sqlite3",
+        expected_digest=backup_digest,
+        now=NOW,
+        retention_authority=restarted,
+    )
+    with pytest.raises(StorageError, match="quarantined"):
+        restored.check_authorization(now=NOW, source_policy=policy, permit=permit)
+    with pytest.raises(StorageError, match="missing"):
+        restored.read(raw, now=NOW, source_policy=policy, permit=permit)
     client.close()
 
 
 def test_news_api_uses_provider_time_and_never_fetches_article(tmp_path: Path) -> None:
-    policy, permit = configuration("news")
+    policy, permit = configuration("news", "NEWS")
     calls: list[httpx.Request] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -491,6 +810,27 @@ def test_information_analysis_uses_only_known_evidence_and_caps_rumor(
     assert (
         later.features[0].conflicting_evidence and later.features[0].rumor_fraction == 0
     )
+    corrected = denial.model_copy(
+        update={"correction": True, "supersedes": original.item_id}
+    )
+    linked = analyze_information(
+        (original, corrected), analysis_policy, at=NOW + timedelta(seconds=1)
+    )
+    assert next(
+        item for item in linked.items if item.item_id == original.item_id
+    ).superseded
+    assert (
+        not analyze_information((original, corrected), analysis_policy, at=NOW)
+        .items[0]
+        .superseded
+    )
+    for target in ("missing-original", corrected.item_id):
+        with pytest.raises(ValueError, match="original"):
+            analyze_information(
+                (original, corrected.model_copy(update={"supersedes": target})),
+                analysis_policy,
+                at=NOW + timedelta(seconds=1),
+            )
     client.close()
 
 
@@ -498,7 +838,7 @@ def test_information_analysis_uses_only_known_evidence_and_caps_rumor(
 def test_public_channel_export_has_no_network_and_preserves_edits(
     tmp_path: Path, channel_type: str
 ) -> None:
-    policy, permit = configuration("public-channel")
+    policy, permit = configuration("public-channel", "PUBLIC_CHANNEL")
 
     def forbidden(request: httpx.Request) -> httpx.Response:
         raise AssertionError("export parsing must not access Telegram")
@@ -546,13 +886,24 @@ def test_public_channel_export_has_no_network_and_preserves_edits(
     client.close()
 
 
+@pytest.mark.parametrize(
+    "endpoint,scope,market",
+    [
+        (ENDPOINT, "stk_isu_base_info", "KOSPI"),
+        (KOSDAQ_ENDPOINT, "ksq_isu_base_info", "KOSDAQ"),
+        (KONEX_ENDPOINT, "knx_isu_base_info", "KONEX"),
+    ],
+)
 def test_krx_official_reference_preserves_observation_without_granting_eligibility(
     tmp_path: Path,
+    endpoint: str,
+    scope: str,
+    market: str,
 ) -> None:
-    policy, permit = configuration("krx-reference")
+    policy, permit = configuration("krx-reference", "MARKET")
 
     def respond(request: httpx.Request) -> httpx.Response:
-        assert str(request.url).startswith(ENDPOINT)
+        assert str(request.url).startswith(endpoint)
         assert request.url.params["basDd"] == "20261001"
         assert request.headers["AUTH_KEY"] == "synthetic-only"
         return httpx.Response(
@@ -565,7 +916,7 @@ def test_krx_official_reference_preserves_observation_without_granting_eligibili
                         "ISU_NM": "합성기업",
                         "ISU_ABBRV": "합성",
                         "LIST_DD": "20000101",
-                        "MKT_TP_NM": "KOSPI",
+                        "MKT_TP_NM": market,
                         "SECUGRP_NM": "주권",
                         "KIND_STKCERT_TP_NM": "보통주",
                         "LIST_SHRS": "1000",
@@ -579,8 +930,8 @@ def test_krx_official_reference_preserves_observation_without_granting_eligibili
             source_id="krx-reference",
             format="KRX_JSON",
             category="MARKET",
-            endpoint=ENDPOINT,
-            allowed_scope=["stk_isu_base_info"],
+            endpoint=endpoint,
+            allowed_scope=[scope],
         ),
         policy,
         permit,
@@ -594,4 +945,21 @@ def test_krx_official_reference_preserves_observation_without_granting_eligibili
     assert result.observed_at == NOW and result.as_of == date(2026, 10, 1)
     assert not result.eligibility_verified and not result.historical_knowledge_verified
     assert result.items[0].symbol == "005930"
+    assert result.items[0].market == market
+    if endpoint == KONEX_ENDPOINT:
+        with pytest.raises(InformationError, match="endpoint"):
+            collect_krx_reference(
+                client, session=date(2013, 6, 30), auth_key=SecretStr("synthetic-only")
+            )
+    client.source = source(
+        source_id="krx-reference",
+        format="KRX_JSON",
+        category="MARKET",
+        endpoint=endpoint,
+        allowed_scope=["mismatched-service"],
+    )
+    with pytest.raises(InformationError, match="endpoint"):
+        collect_krx_reference(
+            client, session=date(2026, 10, 1), auth_key=SecretStr("synthetic-only")
+        )
     client.close()

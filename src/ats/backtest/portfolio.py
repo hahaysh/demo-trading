@@ -4,19 +4,25 @@ import math
 import statistics
 from collections.abc import Callable
 from datetime import datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import AwareDatetime, Field, model_validator
 
 from ats.backtest.engines import (
+    EngineAsset,
     EngineCase,
     EngineEvidence,
+    SharedEngineCase,
     TargetEngineCase,
+    engine_results_match,
     run_engine,
+    shared_account_reference,
 )
 from ats.data.information_analysis import InformationAnalysis
 from ats.domain.governance import evidence_digest
+from ats.domain.policy import PolicyMetadata, PolicyStatus
 from ats.domain.prices import SEOUL
 from ats.domain.strategy import ArtifactRef, FrozenModel, Identifier, Sha256Digest
 
@@ -26,9 +32,33 @@ class FactorComposition(FrozenModel):
     lookback: Annotated[int, Field(strict=True, ge=2, le=252)]
     direction: Literal[-1, 1] = 1
     require_official: bool = False
+    price_adjustment: Literal["RAW", "TOTAL_RETURN"] = "RAW"
     max_information_age_seconds: Annotated[int, Field(strict=True, ge=1, le=604800)] = (
         86400
     )
+
+
+def signal_price_history(
+    case: EngineCase, adjustment: Literal["RAW", "TOTAL_RETURN"]
+) -> tuple[float, ...]:
+    if adjustment == "RAW":
+        if case.corporate_actions:
+            raise ValueError(
+                "automatic factors require a separate corporate-action adjustment protocol"
+            )
+        return case.close
+    values = [Decimal(str(case.close[0]))]
+    actions = {action.session: action for action in case.corporate_actions}
+    for index in range(1, len(case.dates)):
+        action = actions.get(case.dates[index])
+        ratio = action.new_shares_per_old if action else 1
+        cash = Decimal(str(action.net_cash_per_share)) if action else Decimal(0)
+        values.append(
+            values[-1]
+            * (Decimal(str(case.close[index])) * ratio + cash)
+            / Decimal(str(case.close[index - 1]))
+        )
+    return tuple(float(value) for value in values)
 
 
 def compile_factors(
@@ -40,6 +70,7 @@ def compile_factors(
 ) -> TargetEngineCase:
     composition = FactorComposition.model_validate(composition.model_dump())
     case = EngineCase.model_validate(case.model_dump())
+    signal_prices = signal_price_history(case, composition.price_adjustment)
     information = tuple(
         InformationAnalysis.model_validate(item.model_dump()) for item in information
     )
@@ -50,7 +81,7 @@ def compile_factors(
     for index, session in enumerate(case.dates):
         decided = datetime.combine(session, time(8), tzinfo=SEOUL)
         decisions.append(decided)
-        prior = case.close[max(0, index - composition.lookback) : index]
+        prior = signal_prices[max(0, index - composition.lookback) : index]
         signal = (
             len(prior) == composition.lookback
             and composition.direction * (prior[-1] - statistics.mean(prior)) > 0
@@ -108,7 +139,9 @@ class PortfolioAsset(FrozenModel):
     tradable: tuple[bool, ...]
     classification_known_at: tuple[AwareDatetime, ...]
     price_observed_at: tuple[AwareDatetime, ...]
-    corporate_actions: tuple[Literal["NONE", "UNRESOLVED"], ...]
+    corporate_actions: tuple[
+        Literal["NONE", "UNRESOLVED", "FORWARD_SPLIT", "NET_CASH_DIVIDEND"], ...
+    ]
 
     @model_validator(mode="after")
     def point_in_time(self) -> Self:
@@ -126,16 +159,34 @@ class PortfolioAsset(FrozenModel):
             raise ValueError("asset history must cover the full calendar")
         previous = 0
         for index, session in enumerate(self.case.dates):
-            execution = datetime.combine(session, time(9), tzinfo=SEOUL)
-            if self.classification_known_at[index] >= execution:
+            if self.price_observed_at[index] < datetime.combine(
+                session, time(15, 30), tzinfo=SEOUL
+            ):
+                raise ValueError(
+                    "completed daily price cannot be observed before close"
+                )
+            if self.classification_known_at[index] > self.case.decided_at[index]:
                 raise ValueError("future historical classification")
             if (
                 index
                 and self.price_observed_at[index - 1] > self.case.decided_at[index]
             ):
                 raise ValueError("price was unavailable for this decision")
-            if self.corporate_actions[index] != "NONE":
+            if self.corporate_actions[index] == "UNRESOLVED":
                 raise ValueError("unresolved corporate action blocks evaluation")
+            actions = [
+                action
+                for action in self.case.corporate_actions
+                if action.session == session
+            ]
+            if self.corporate_actions[index] != (
+                actions[0].kind if actions else "NONE"
+            ):
+                raise ValueError(
+                    "corporate action flag lacks matching explicit evidence"
+                )
+            for action in actions:
+                previous *= action.new_shares_per_old
             target = self.case.targets[index]
             if not self.eligible[index] and target:
                 raise ValueError("ineligible instrument cannot have a target position")
@@ -150,6 +201,7 @@ class PortfolioRequest(FrozenModel):
     strategy_digest: Sha256Digest
     snapshot_digest: Sha256Digest
     image_digest: Sha256Digest
+    cash_settlement_sessions: Annotated[int, Field(strict=True, ge=0, le=5)] = 0
 
     @model_validator(mode="after")
     def common_inputs(self) -> Self:
@@ -174,6 +226,60 @@ class PortfolioResult(FrozenModel):
     daily_loss_breaches: tuple[int, ...]
     drawdown_breaches: tuple[int, ...]
     certified: Literal[False] = False
+
+
+class SharedPortfolioResult(FrozenModel):
+    request_digest: Sha256Digest
+    qlib: EngineEvidence
+    lean: EngineEvidence
+    settlement_validation: Literal["HOST_PREFLIGHT_ONLY"] = "HOST_PREFLIGHT_ONLY"
+    certified: Literal[False] = False
+
+
+def evaluate_shared_portfolio(
+    request: PortfolioRequest,
+    *,
+    qlib_lock: Path,
+    lean_lock: Path,
+    guard: Callable[[], None],
+) -> SharedPortfolioResult:
+    guard()
+    request = PortfolioRequest.model_validate(request.model_dump())
+    case = SharedEngineCase.model_validate(
+        {
+            **request.assets[0].case.model_dump(
+                exclude={"api_version", "targets", "decided_at", "signal_artifact"}
+            ),
+            "assets": tuple(
+                EngineAsset(instrument_id=asset.instrument_id, case=asset.case)
+                for asset in request.assets
+            ),
+            "cash_settlement_sessions": request.cash_settlement_sessions,
+        }
+    )
+    shared_account_reference(case)
+    evidence: list[EngineEvidence] = []
+    engines: tuple[tuple[Literal["QLIB", "LEAN"], Path], ...] = (
+        ("QLIB", qlib_lock),
+        ("LEAN", lean_lock),
+    )
+    for engine, lock in engines:
+        guard()
+        evidence.append(
+            run_engine(
+                case,
+                engine=engine,
+                image_digest=request.image_digest,
+                dependency_lock=lock,
+                strategy_digest=request.strategy_digest,
+                snapshot_digest=request.snapshot_digest,
+            )
+        )
+    if not engine_results_match(evidence[0].result, evidence[1].result):
+        raise ValueError("shared portfolio engines disagree")
+    return SharedPortfolioResult(
+        request_digest=evidence_digest(request), qlib=evidence[0], lean=evidence[1]
+    )
 
 
 def evaluate_portfolio(
@@ -321,6 +427,10 @@ class OosProtocol(FrozenModel):
     embargo: Annotated[int, Field(strict=True, ge=0)]
     total_trials: Annotated[int, Field(strict=True, ge=1)]
     cost_multipliers: tuple[Annotated[float, Field(ge=1, le=5)], ...] = (1, 2)
+    block_lengths: Annotated[
+        tuple[Annotated[int, Field(strict=True, ge=2, le=32)], ...],
+        Field(min_length=1, max_length=4),
+    ] = (5, 10)
 
 
 class OosEvidence(FrozenModel):
@@ -337,6 +447,104 @@ class OosEvidence(FrozenModel):
     maximum_participation: float = 0
     regime_returns: dict[str, tuple[float, ...]] = {}
     dsr_diagnostic: dict[str, Any] | None = None
+    dependence_diagnostic: dict[str, Any] | None = None
+    review_gate: dict[str, Any] | None = None
+
+
+class OosGatePolicy(FrozenModel):
+    metadata: PolicyMetadata
+    minimum_observations: Annotated[int, Field(strict=True, ge=60, le=512)] = 60
+    minimum_dsr_confidence: Annotated[float, Field(ge=0.95, le=1)] = 0.95
+    minimum_positive_fold_fraction: Annotated[float, Field(gt=0, le=1)] = 0.5
+    maximum_participation: Annotated[float, Field(gt=0, le=0.1)] = 0.1
+    agent_editable: Literal[False] = False
+
+
+class OosGateResult(FrozenModel):
+    policy_digest: Sha256Digest
+    evidence_digest: Sha256Digest
+    evaluated_at: AwareDatetime
+    checks: dict[str, bool]
+    eligible_for_review: bool
+    deployment_ready: Literal[False] = False
+
+
+def assess_oos_gate(
+    evidence: OosEvidence, protocol: OosProtocol, policy: OosGatePolicy, *, at: datetime
+) -> OosGateResult:
+    evidence = OosEvidence.model_validate(evidence.model_dump())
+    protocol = OosProtocol.model_validate(protocol.model_dump())
+    policy = OosGatePolicy.model_validate(policy.model_dump())
+    if at.tzinfo is None or at.utcoffset() is None:
+        raise ValueError("aware gate evaluation time required")
+    if evidence.protocol_digest != evidence_digest(protocol):
+        raise ValueError("OOS evidence protocol mismatch")
+    diagnostic = evidence.dsr_diagnostic or {}
+    confidence = diagnostic.get("confidence")
+    dependence = evidence.dependence_diagnostic or {}
+    block_lower = dependence.get("lower_bound")
+    width = 2 * len(protocol.cost_multipliers)
+    baseline = (
+        protocol.cost_multipliers.index(1) * 2 if 1 in protocol.cost_multipliers else 0
+    )
+    baseline_results = evidence.fold_results[baseline::width] if width else ()
+    observations = sum(len(item.result.equity) for item in baseline_results)
+    paired = bool(
+        width and evidence.fold_results and len(evidence.fold_results) % width == 0
+    )
+    for offset in range(0, len(evidence.fold_results) - 1, 2):
+        first, second = evidence.fold_results[offset : offset + 2]
+        paired = (
+            paired
+            and first.result.engine == "QLIB"
+            and second.result.engine == "LEAN"
+            and engine_results_match(first.result, second.result)
+        )
+    checks = {
+        "approved_policy": policy.metadata.status is PolicyStatus.APPROVED
+        and policy.metadata.approved_at is not None
+        and policy.metadata.approved_at <= evidence.selection_cutoff <= at,
+        "paired_engines": paired,
+        "sample_size": observations >= policy.minimum_observations
+        and diagnostic.get("observations") == observations,
+        "search_adjusted_dsr": diagnostic.get("model") == "DSR/SciPy-per-period"
+        and diagnostic.get("status") == "DIAGNOSTIC_ONLY"
+        and diagnostic.get("total_trials") == protocol.total_trials
+        and isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and math.isfinite(confidence)
+        and policy.minimum_dsr_confidence <= confidence <= 1,
+        "positive_lower_bound": math.isfinite(evidence.corrected_lower_bound)
+        and evidence.corrected_lower_bound > 0,
+        "dependence_stress": dependence.get("model") == "NumPy/circular-block-bootstrap"
+        and dependence.get("status") == "DIAGNOSTIC_ONLY"
+        and dependence.get("total_trials") == protocol.total_trials
+        and dependence.get("observations") == observations
+        and dependence.get("block_lengths") == list(protocol.block_lengths)
+        and isinstance(block_lower, (int, float))
+        and not isinstance(block_lower, bool)
+        and math.isfinite(block_lower)
+        and block_lower > 0,
+        "positive_folds": evidence.baseline_fold_count == len(baseline_results)
+        and len(baseline_results) >= 2
+        and policy.minimum_positive_fold_fraction
+        <= evidence.positive_baseline_folds / len(baseline_results)
+        <= 1,
+        "regime_coverage": all(
+            evidence.regime_returns.get(regime) for regime in ("UP", "DOWN")
+        ),
+        "cost_stress": 1 in protocol.cost_multipliers
+        and any(value > 1 for value in protocol.cost_multipliers),
+        "liquidity": math.isfinite(evidence.maximum_participation)
+        and 0 <= evidence.maximum_participation <= policy.maximum_participation,
+    }
+    return OosGateResult(
+        policy_digest=evidence_digest(policy),
+        evidence_digest=evidence_digest(evidence),
+        evaluated_at=at,
+        checks=checks,
+        eligible_for_review=all(checks.values()),
+    )
 
 
 def evaluate_oos(
@@ -413,11 +621,15 @@ def evaluate_oos(
                     "open": case.open[first:last],
                     "close": case.close[first:last],
                     "volume": case.volume[first:last],
+                    "opening_capacity": case.opening_capacity[first:last]
+                    if case.opening_capacity is not None
+                    else None,
                     "targets": targets,
                     "decided_at": streams.decided_at[first:last],
                     "signal_artifact": streams.signal_artifact,
                     "buy_fee": case.buy_fee * multiplier,
                     "sell_fee": case.sell_fee * multiplier,
+                    "slippage": case.slippage * multiplier,
                 }
             )
             engines: tuple[tuple[Literal["QLIB", "LEAN"], Path], ...] = (
@@ -437,10 +649,7 @@ def evaluate_oos(
                         snapshot_digest=snapshot_digest,
                     )
                 )
-            if (
-                paired[0].result.fills != paired[1].result.fills
-                or paired[0].result.equity != paired[1].result.equity
-            ):
+            if not engine_results_match(paired[0].result, paired[1].result):
                 raise ValueError("OOS engines disagree")
             evidence.extend(paired)
             for fill in paired[0].result.fills:

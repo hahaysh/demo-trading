@@ -173,6 +173,64 @@ def test_ingestion_requires_separate_storage_permission(tmp_path: Path) -> None:
     assert not database.exists()
 
 
+def test_expired_payload_cannot_be_redated_after_purge(tmp_path: Path) -> None:
+    metadata = {
+        "policy_id": "fixture-only",
+        "version": "1",
+        "status": "APPROVED",
+        "approved_by": "synthetic-reviewer",
+        "approved_at": NOW - timedelta(days=1),
+    }
+    policy = SourceAllowlist.model_validate(
+        {
+            "metadata": metadata,
+            "sources": [
+                {
+                    "source_id": "kis-market",
+                    "category": "MARKET",
+                    "enabled": True,
+                    "legal_review": "APPROVED",
+                    "rights": {"classification": "LICENSED", "retention_days": 1},
+                    "rate_limit_per_minute": 1,
+                    "notes": "Synthetic fixture only.",
+                }
+            ],
+        }
+    )
+    permit = StoragePermit.model_validate(
+        {
+            "metadata": metadata,
+            "source_id": "kis-market",
+            "allow_persistence": True,
+            "source_policy_digest": evidence_digest(policy),
+            "retention_days": 1,
+            "expires_at": NOW + timedelta(days=10),
+        }
+    )
+    store = LocalPayloadStore(tmp_path / "retention.sqlite3")
+    raw = b"synthetic-retained-payload"
+    receipt = store.put(
+        raw, observed_at=NOW, now=NOW, source_policy=policy, permit=permit
+    )
+    assert store.purge_expired(now=receipt.expires_at) == 1
+    assert store.purge_expired(now=receipt.expires_at) == 0
+    restarted = LocalPayloadStore(store.database)
+    with pytest.raises(StorageError, match="tombstoned"):
+        restarted.put(
+            raw,
+            observed_at=receipt.expires_at,
+            now=receipt.expires_at,
+            source_policy=policy,
+            permit=permit,
+        )
+    with sqlite3.connect(store.database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM payloads").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT reason FROM payload_tombstones").fetchone()[0]
+            == "EXPIRED"
+        )
+
+
 def test_validated_synthetic_batch_is_stored_with_observation_and_expiry(
     tmp_path: Path,
 ) -> None:

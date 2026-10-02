@@ -15,6 +15,11 @@ Last updated: 2026-10-02
 세부 증거·미완료 행과 [제안 ADR 0004](../adr/0004-paper-trial-authorization.md)를 확인합니다.
 paper 시험 권한은 아직 승인되지 않았으며, 기존 champion 검사를 candidate로 우회하지 않습니다.
 
+최신 재개 근거는 [Current Verification and Boundaries](rsi-development-plan.md#current-verification-and-boundaries)입니다.
+698개 전체 테스트, 보안 runtime, 공유 계정·기업행동·명시적 가격 조정, 게시물 철회 격리와
+독립 서명·RS256 검증을 확인했습니다. 새 합성 root는 `.local/rsi-w8-20261002/`, 최신 화면은 8768입니다.
+과거 이미지/lock을 새 보안 runtime과 섞지 말고 연구 안내의 `--lean-lock`을 함께 지정합니다.
+
 1. 이 문서와 [현재 상태](status.md)를 읽고 최신 사용자 요청과 남은 작업을 대조합니다.
    아키텍처·범위 변경 전에는 전체 계획을, 주문 관련 변경 전에는 실거래 확장 계획도 읽습니다.
 2. 작업 트리와 관련 파일의 현재 내용을 확인합니다. `git status --short`로 사용자 변경을

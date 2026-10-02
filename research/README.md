@@ -6,28 +6,56 @@ A-E 전체 개발은 [현재 계획](../docs/plans/rsi-development-plan.md)의 �
 아래는 합성 수집·실제 학습·실제 엔진·운영 장부를 연결하는 검증 명령이며 실제 수집/주문을 실행하지 않습니다.
 
 ```powershell
-./research/engines/build.ps1
+./research/engines/build.ps1 -SecurityRebuild
 docker build -t ats-rsi:dev research/rsi
 $engine = docker image inspect ats-backtest-engines:dev --format '{{.Id}}'
 $model = docker image inspect ats-rsi:dev --format '{{.Id}}'
-uv run --frozen python -m ats.rsi_workflow --root .local/my-rsi --engine-image $engine --proposer-image $model --signal-model RIDGE --case research/rsi/market-case.json --cycles 4
-uv run --frozen python -m ats.research_validation --root .local/my-rsi --market research/rsi/holdout-case.json --sequence 0
-uv run --frozen python -m ats.operator --root .local/my-rsi --research .local/my-rsi/research.sqlite3 --port 8767
+$leanLock = 'research/engines/security-probe/locks/runner.lock.json'
+uv run --frozen python -m ats.rsi_workflow --root .local/my-rsi --engine-image $engine --proposer-image $model --signal-model LINEAR_SEARCH --case research/rsi/market-case.json --lean-lock $leanLock --cycles 4
+uv run --frozen python -m ats.research_validation --root .local/my-rsi --market research/rsi/holdout-case.json --sequence 1 --lean-lock $leanLock
+uv run --frozen python -m ats.operator --root .local/my-rsi --research .local/my-rsi/research.sqlite3 --port 8768
 ```
 
 같은 root와 동일 runtime/model/case는 재개할 수 있습니다. 코드/시장 자료가 바뀌면 기존 campaign을
 수정하지 말고 새 버전을 만들어야 합니다. holdout 시작 후에는 같은 campaign의 추가 탐색이 거절됩니다.
 학습 점수는 research_trials, 최종 검증은 research_validation에 별도로 저장합니다.
-OOS 하한은 정규 근사·다중 탐색 보정 진단이며 DSR 인증이 아닙니다. 합성 달력은 실제 KRX 달력이 아닙니다.
+LINEAR_SEARCH는 허용된 4개 파라미터에서 Ridge/ElasticNet을 선택하며 부모의 변경 수 예산을 유지합니다.
+분석 manifest와 원문이 철회·만료됐으면 연구·검증 경계에서 재사용을 거절합니다.
+OOS 하한·DSR·fold 내부 block bootstrap은 별도 진단입니다. 짧은 표본은 근거 부족으로 남기고
+기본 검증 정책은 DRAFT라 리뷰 게이트도 통과하지 않습니다. 합성 달력은 실제 KRX 달력이 아닙니다.
+
+`-SecurityRebuild`는 공식 LEAN commit을 해시로 고정해 Compression/Common/Engine을
+ProDotNetZip 1.19.0으로 재빌드합니다. 네 프로젝트의 lock, 원본 라이선스와 변경 표식을 유지하고
+출력의 원래 DotNetZip 참조 부재 및 정상/경로 탈출 ZIP 회귀를 검사합니다. 다른 취약점의 부재나
+전체 운영 보안을 인증하지 않습니다. 옵션 없는 과거 빌드·이미지는 DotNetZip 경고가 남으므로 구분합니다.
+재빌드 runtime에는 반드시 위 `$leanLock`을 사용합니다. 이름이 같은 태그도 실제 image ID를 다시 확인합니다.
 
 운영 화면은 localhost 전용 합성 인증 서버입니다. `/fixture/session`은 공개된 시험용 키의 임시
 토큰을 반환하고 `/fixture/sign`은 시험 명령을 바인딩합니다. 실제 비밀이나 계좌를 넣지 마세요.
 이 모드는 인터넷에 게시하거나 운영 인증으로 사용하면 안 됩니다. 실제 app factory는 별도의
-trusted issuer/public key/identity 목록과 검증된 promotion evidence provider를 요구합니다.
+trusted issuer/public key/identity 목록과 promotion provider 및 독립 `SignedPromotionVerifier`를 요구합니다.
+서명·현재 run/evaluation 바이트·계좌·관측 기간을 검증하며, 실제 관측자 신뢰 설정이나 실제 20세션을
+이 데모가 대신하지 않습니다. 화면의 현재 수집 지연은 과거 성공 기록과 별도로 표시합니다.
 화면의 검토 수락은 전략 승격이 아니며, 선택된 전략도 broker를 자동 활성화하지 않습니다.
 미해결 paper 시험 권한은 [제안 ADR](../docs/adr/0004-paper-trial-authorization.md)에 있으며 미승인입니다.
 
 기존 단일 종목/지표 probe의 과거 증거를 현재 RSI 전체 완료로 해석하지 않습니다.
+
+`evaluate_shared_portfolio`는 두 엔진이 하나의 현금 계정에서 다종목을 처리하는 별도 경로입니다.
+명시적 슬리피지·tick 반올림·장 시작 capacity와 합성 raw-target 분할/순배당을 지원합니다.
+capacity는 목표의 일부 실행 모델이지 실제 broker 부분체결 통지 시험이 아닙니다. 결제 세션 제약은
+`HOST_PREFLIGHT_ONLY`입니다. 자동 팩터의 기본 RAW는 기업행동 입력을 거절하며 명시적으로
+`FactorComposition(price_adjustment="TOTAL_RETURN")`을 선택할 수 있습니다. 연구·학습에서는
+부모의 고정 `signal.total_return_adjustment=1`을 요구하며 원시 체결 가격을 변경하지 않습니다.
+`serve_information`은 중단 신호와 수명/회차 예산을 가진 임베딩용 로컬 서비스 함수입니다.
+OS 예약 등록이나 실제 소스 활성화는 하지 않습니다. 데이터 전용 backup/restore는 최신 삭제 장부를
+요구하며, 운영·주문 장부를 과거로 되돌리는 범용 복구 기능이 아닙니다.
+
+`withdraw_item`은 원문/분석 파생물을 철회하고 해당 소스의 신규 수집을 격리합니다. 해시가 다른
+바이트 재유입도 차단하며 백업 복구에 최신 격리를 병합합니다. 자동 해제는 하지 않습니다.
+DART 거래소 공시는 `exchange-filings` scope와 `exchange_only=True`를 함께 지정하며,
+KIND 직접 API로 표시하지 않습니다. KRX 기본정보는 고정된 `stk/ksq/knx_isu_base_info`의
+세 서비스만 허용하며 실제 이용·보존 허가나 역사적 투자 적격성을 자동 인정하지 않습니다.
 
 ## Full Pipeline
 

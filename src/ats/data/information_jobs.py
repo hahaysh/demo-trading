@@ -1,7 +1,9 @@
 """Durable information schedules, fenced leases and retained revision indexes."""
 
+import asyncio
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -14,6 +16,11 @@ from ats.data.information import (
     InformationError,
     InformationSource,
     TextObservation,
+)
+from ats.data.information_analysis import (
+    AnalysisPolicy,
+    InformationAnalysis,
+    analyze_information,
 )
 from ats.data.storage import (
     LocalPayloadStore,
@@ -51,7 +58,190 @@ class InformationRun(FrozenModel):
     archive: StoredPayload | None = None
 
 
+class InformationHealth(FrozenModel):
+    schedule_id: Identifier
+    observed_at: AwareDatetime
+    state: Literal[
+        "CURRENT",
+        "NOT_STARTED",
+        "LATE",
+        "FAILED",
+        "GAP",
+        "RUNNING",
+        "LEASE_EXPIRED",
+        "QUARANTINED",
+    ]
+    watermark: AwareDatetime | None
+    lag_seconds: Annotated[int, Field(strict=True, ge=0)]
+
+
 class InformationStore(LocalPayloadStore):
+    def withdraw_item(
+        self,
+        item_id: str,
+        *,
+        now: datetime,
+        policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> int:
+        self.check_authorization(now=now, source_policy=policy, permit=permit)
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT receipt FROM info_index WHERE source_id=? AND item_id=?",
+                (permit.source_id, item_id),
+            ).fetchall()
+        roots: set[tuple[str, str]] = set()
+        for row in rows:
+            receipt = StoredPayload.model_validate_json(row["receipt"])
+            observation = TextObservation.model_validate_json(
+                self.read(receipt, now=now, source_policy=policy, permit=permit)
+            )
+            if (
+                observation.source_id != permit.source_id
+                or observation.item_id != item_id
+            ):
+                raise InformationError("withdrawn item identity mismatch")
+            roots.add((observation.source_id, observation.raw.digest))
+            if observation.origin_raw is not None:
+                roots.add((observation.source_id, observation.origin_raw.digest))
+        if not roots:
+            raise InformationError("withdrawal requires an indexed source item")
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO source_quarantine VALUES (?,?,?)",
+                (permit.source_id, item_id, now.astimezone(UTC).isoformat()),
+            )
+            return self._remove(
+                connection,
+                tuple(roots),
+                now=now.astimezone(UTC),
+                reason="ITEM_WITHDRAWN",
+            )
+
+    def health(self, *, at: datetime) -> tuple[InformationHealth, ...]:
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise InformationError("aware health observation time required")
+        runs = self.status()
+        with self._connection() as connection:
+            schedules = connection.execute(
+                "SELECT definition,watermark FROM info_schedules ORDER BY id"
+            ).fetchall()
+            quarantined = {
+                row[0]
+                for row in connection.execute("SELECT source_id FROM source_quarantine")
+            }
+        result: list[InformationHealth] = []
+        for row in schedules:
+            schedule = InformationSchedule.model_validate_json(row["definition"])
+            watermark = (
+                datetime.fromisoformat(row["watermark"]) if row["watermark"] else None
+            )
+            latest = max(
+                (
+                    run
+                    for run in runs
+                    if run.schedule.schedule_id == schedule.schedule_id
+                ),
+                key=lambda run: run.window_end,
+                default=None,
+            )
+            if (
+                watermark is not None
+                and watermark > at
+                or latest is not None
+                and latest.updated_at > at
+            ):
+                raise InformationError("health clock precedes stored evidence")
+            due = (watermark or schedule.starts_at) + timedelta(
+                seconds=schedule.cadence_seconds
+            )
+            lag = max(0, int((at - due).total_seconds()))
+            state = (
+                "NOT_STARTED"
+                if at < schedule.starts_at
+                else "LATE"
+                if at >= due
+                else "CURRENT"
+            )
+            if latest is not None:
+                if latest.status == "RUNNING":
+                    state = (
+                        "RUNNING"
+                        if latest.lease_until is not None and latest.lease_until > at
+                        else "LEASE_EXPIRED"
+                    )
+                elif latest.status in ("FAILED", "GAP"):
+                    state = latest.status
+            if schedule.source.source_id in quarantined:
+                state = "QUARANTINED"
+            result.append(
+                InformationHealth.model_validate(
+                    {
+                        "schedule_id": schedule.schedule_id,
+                        "observed_at": at,
+                        "state": state,
+                        "watermark": watermark,
+                        "lag_seconds": lag,
+                    }
+                )
+            )
+        return tuple(result)
+
+    def retain_analysis(
+        self,
+        name: str,
+        analysis_policy: AnalysisPolicy,
+        *,
+        at: datetime,
+        now: datetime,
+        policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> tuple[InformationAnalysis, PayloadManifest]:
+        observations = self.observations(at=at, now=now, policy=policy, permit=permit)
+        if not observations:
+            raise InformationError("retained analysis requires source observations")
+        analysis = analyze_information(observations, analysis_policy, at=at)
+        parents = {item.raw.digest: item.raw for item in observations}
+        parents.update(
+            {
+                item.origin_raw.digest: item.origin_raw
+                for item in observations
+                if item.origin_raw is not None
+            }
+        )
+        payload = self.put(
+            analysis.model_dump_json().encode(),
+            observed_at=at,
+            now=now,
+            source_policy=policy,
+            permit=permit,
+            parents=tuple(parents.values()),
+        )
+        manifest = self.bind_manifest(
+            PayloadManifest(name=name, payload=payload),
+            now=now,
+            source_policy=policy,
+            permit=permit,
+        )
+        return analysis, manifest
+
+    def read_analysis(
+        self,
+        manifest: PayloadManifest,
+        *,
+        now: datetime,
+        policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> InformationAnalysis:
+        retained = self.resolve_manifest(
+            manifest.name, now=now, source_policy=policy, permit=permit
+        )
+        if retained != manifest:
+            raise InformationError("analysis manifest changed")
+        return InformationAnalysis.model_validate_json(
+            self.read(retained.payload, now=now, source_policy=policy, permit=permit)
+        )
+
     def claim(
         self, schedule: InformationSchedule, *, at: datetime
     ) -> InformationRun | None:
@@ -180,15 +370,37 @@ class InformationStore(LocalPayloadStore):
                     now=at,
                     source_policy=policy,
                     permit=permit,
+                    parents=tuple(
+                        {
+                            item.raw.digest: item.raw,
+                            **(
+                                {item.origin_raw.digest: item.origin_raw}
+                                if item.origin_raw
+                                else {}
+                            ),
+                        }.values()
+                    ),
                 )
                 retained.append((item, item_receipt))
-            observed = min(page.observed_at for page in batch.pages)
+            observed = max(
+                page.observed_at
+                for page in (*batch.pages, *(receipt for _, receipt in retained))
+            )
             archive = self.put(
                 batch.model_dump_json().encode(),
                 observed_at=observed,
                 now=at,
                 source_policy=policy,
                 permit=permit,
+                parents=tuple(
+                    {
+                        page.digest: page
+                        for page in (
+                            *batch.pages,
+                            *(receipt for _, receipt in retained),
+                        )
+                    }.values()
+                ),
             )
         completed = InformationRun.model_validate(
             {
@@ -334,3 +546,106 @@ def run_information_schedule(
                 permit=client.permit,
             )
         raise
+
+
+@dataclass(frozen=True)
+class ScheduledCollector:
+    store: InformationStore
+    schedule: InformationSchedule
+    client: InformationClient
+    collect: Callable[[datetime, datetime], InformationBatch]
+
+
+class InformationSweep(FrozenModel):
+    steps: int
+    completed: tuple[InformationRun, ...]
+    failures: dict[str, Literal["COLLECTION_FAILED", "GAP"]]
+    budget_exhausted: bool
+
+
+def run_information_sweep(
+    jobs: tuple[ScheduledCollector, ...],
+    *,
+    max_steps: int,
+    guard: Callable[[], None],
+) -> InformationSweep:
+    if (
+        not 1 <= len(jobs) <= 32
+        or type(max_steps) is not int
+        or not 1 <= max_steps <= 128
+    ):
+        raise InformationError("bounded collectors and sweep budget required")
+    if len({job.schedule.schedule_id for job in jobs}) != len(jobs):
+        raise InformationError("sweep schedule identifiers must be unique")
+    active = list(jobs)
+    completed: list[InformationRun] = []
+    failures: dict[str, Literal["COLLECTION_FAILED", "GAP"]] = {}
+    steps = 0
+    while active and steps < max_steps:
+        job = active.pop(0)
+        guard()
+        steps += 1
+        try:
+            result = run_information_schedule(
+                job.store, job.schedule, job.client, job.collect
+            )
+        except Exception:
+            failures[job.schedule.schedule_id] = "COLLECTION_FAILED"
+            continue
+        if result is None:
+            continue
+        completed.append(result)
+        if result.status == "SUCCEEDED":
+            active.append(job)
+        else:
+            failures[job.schedule.schedule_id] = (
+                "GAP" if result.status == "GAP" else "COLLECTION_FAILED"
+            )
+    return InformationSweep(
+        steps=steps,
+        completed=tuple(completed),
+        failures=failures,
+        budget_exhausted=bool(active),
+    )
+
+
+async def serve_information(
+    jobs: tuple[ScheduledCollector, ...],
+    *,
+    stop: asyncio.Event,
+    guard: Callable[[], None],
+    on_sweep: Callable[[InformationSweep], None],
+    interval_seconds: int = 60,
+    max_sweeps: int = 1440,
+    max_steps: int = 32,
+) -> int:
+    if (
+        type(interval_seconds) is not int
+        or not 1 <= interval_seconds <= 86400
+        or type(max_sweeps) is not int
+        or not 1 <= max_sweeps <= 10000
+    ):
+        raise InformationError("bounded service interval and lifetime required")
+    completed = 0
+
+    def checked() -> None:
+        if stop.is_set():
+            raise InterruptedError("information service stopped")
+        guard()
+
+    while not stop.is_set() and completed < max_sweeps:
+        try:
+            result = await asyncio.to_thread(
+                run_information_sweep, jobs, max_steps=max_steps, guard=checked
+            )
+        except InterruptedError:
+            break
+        on_sweep(result)
+        completed += 1
+        if completed >= max_sweeps or stop.is_set():
+            break
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
+    return completed

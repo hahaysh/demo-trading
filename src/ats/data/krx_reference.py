@@ -13,6 +13,13 @@ from ats.domain.prices import SEOUL
 from ats.domain.strategy import FrozenModel, Sha256Digest
 
 ENDPOINT = "https://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info"
+KOSDAQ_ENDPOINT = "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_isu_base_info"
+KONEX_ENDPOINT = "https://data-dbg.krx.co.kr/svc/apis/sto/knx_isu_base_info"
+REFERENCE_SERVICES = {
+    ENDPOINT: ("stk_isu_base_info", date(2010, 1, 4)),
+    KOSDAQ_ENDPOINT: ("ksq_isu_base_info", date(2010, 1, 4)),
+    KONEX_ENDPOINT: ("knx_isu_base_info", date(2013, 7, 1)),
+}
 
 
 class KrxReferenceItem(FrozenModel):
@@ -41,13 +48,14 @@ class KrxReferenceBatch(FrozenModel):
 def collect_krx_reference(
     client: InformationClient, *, session: date, auth_key: SecretStr
 ) -> KrxReferenceBatch:
+    service = REFERENCE_SERVICES.get(client.source.endpoint)
     if (
         client.source.format != "KRX_JSON"
         or client.source.category != "MARKET"
-        or client.source.endpoint != ENDPOINT
-        or client.source.allowed_scope != ("stk_isu_base_info",)
+        or service is None
+        or client.source.allowed_scope != (service[0],)
         or session >= client.clock().astimezone(SEOUL).date()
-        or session < date(2010, 1, 4)
+        or session < service[1]
         or not auth_key.get_secret_value()
     ):
         raise InformationError(

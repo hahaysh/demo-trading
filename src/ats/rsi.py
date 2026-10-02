@@ -20,11 +20,16 @@ from ats.backtest.engines import (
     EngineCase,
     EngineEvidence,
     TargetEngineCase,
+    engine_results_match,
     run_engine,
 )
-from ats.backtest.portfolio import FactorComposition, compile_factors
+from ats.backtest.portfolio import (
+    FactorComposition,
+    compile_factors,
+    signal_price_history,
+)
 from ats.data.information_analysis import InformationAnalysis
-from ats.data.storage import LocalPayloadStore
+from ats.data.storage import LocalPayloadStore, PayloadManifest
 from ats.domain.governance import evidence_digest
 from ats.domain.strategy import (
     ArtifactRef,
@@ -58,9 +63,10 @@ class ResearchCampaign(FrozenModel):
     created_at: AwareDatetime
     phase: Literal["DEVELOPMENT_ONLY"] = "DEVELOPMENT_ONLY"
     information: tuple[InformationAnalysis, ...] = ()
+    information_manifests: tuple[PayloadManifest, ...] = ()
     instrument_id: Identifier = "krx-test"
     composition_search: bool = False
-    signal_model: Literal["FACTORS", "RIDGE"] = "FACTORS"
+    signal_model: Literal["FACTORS", "RIDGE", "LINEAR_SEARCH"] = "FACTORS"
 
 
 class ResearchTrial(FrozenModel):
@@ -81,6 +87,25 @@ class ResearchTrial(FrozenModel):
 
 class ResearchError(ValueError):
     pass
+
+
+def verify_research_information(
+    campaign: ResearchCampaign,
+    resolver: Callable[[PayloadManifest], InformationAnalysis] | None,
+) -> None:
+    if not campaign.information and not campaign.information_manifests:
+        return
+    if resolver is None or len(campaign.information_manifests) != len(
+        campaign.information
+    ):
+        raise ResearchError(
+            "retained information manifests and trusted resolver required"
+        )
+    for manifest, expected in zip(
+        campaign.information_manifests, campaign.information, strict=True
+    ):
+        if resolver(manifest) != expected:
+            raise ResearchError("retained research information changed")
 
 
 class LearnedSignalEvidence(FrozenModel):
@@ -342,13 +367,16 @@ def learned_targets(
     case: TargetEngineCase,
     *,
     training_cutoffs: tuple[int, ...] | None = None,
+    model_family: Literal["RIDGE", "ELASTIC_NET"] = "RIDGE",
+    price_adjustment: Literal["RAW", "TOTAL_RETURN"] = "RAW",
 ) -> tuple[TargetEngineCase, dict[str, Any]]:
+    signal_prices = signal_price_history(case, price_adjustment)
     features = [
         [0.0, 0.0]
         if index == 0
         else [
             case.close[index - 1] / case.open[index - 1] - 1,
-            case.close[index - 1] / case.close[max(0, index - case.lookback)] - 1,
+            signal_prices[index - 1] / signal_prices[max(0, index - case.lookback)] - 1,
         ]
         for index in range(len(case.dates))
     ]
@@ -370,6 +398,7 @@ def learned_targets(
         campaign,
         {
             "task": "causal_ridge",
+            "model_family": model_family,
             "features": features,
             "labels": labels,
             "training_cutoffs": cutoffs,
@@ -382,7 +411,12 @@ def learned_targets(
     if (
         len(predictions) != len(case.dates)
         or receipt.get("training_rows") != expected_rows
-        or receipt.get("model") != "Ridge/expanding-past-only"
+        or receipt.get("model")
+        != (
+            "Ridge/expanding-past-only"
+            if model_family == "RIDGE"
+            else "ElasticNet/expanding-past-only"
+        )
     ):
         raise ResearchError("learned signal uses incomplete or future training rows")
     targets = tuple(
@@ -390,7 +424,7 @@ def learned_targets(
         for target, prediction in zip(case.targets, predictions, strict=True)
     )
     signal = ArtifactRef(
-        artifact_id="ridge-signal-stream",
+        artifact_id="learned-signal-stream",
         version="1",
         digest=evidence_digest(
             LearnedSignalEvidence(factors=case.signal_artifact, model_receipt=receipt)
@@ -408,15 +442,32 @@ def run_research_cycle(
     qlib_lock: Path,
     lean_lock: Path,
     research_guard: Callable[[str], None],
+    information_resolver: Callable[[PayloadManifest], InformationAnalysis]
+    | None = None,
 ) -> ResearchTrial:
     campaign = ResearchCampaign.model_validate(campaign.model_dump())
     research_guard(campaign.campaign_id)
-    if campaign.signal_model == "RIDGE" and (
+    verify_research_information(campaign, information_resolver)
+    if campaign.signal_model != "FACTORS" and (
         not campaign.composition_search or len(campaign.case.dates) < 7
     ):
         raise ResearchError(
-            "Ridge campaigns require composition authority and at least seven sessions"
+            "learned campaigns require composition authority and at least seven sessions"
         )
+    adjustment_value = next(
+        (
+            item.value
+            for item in campaign.parent.signal.parameters
+            if item.name == "signal.total_return_adjustment"
+        ),
+        0,
+    )
+    if adjustment_value not in (0, 1):
+        raise ResearchError("unsupported price adjustment policy")
+    price_adjustment: Literal["RAW", "TOTAL_RETURN"] = (
+        "TOTAL_RETURN" if adjustment_value == 1 else "RAW"
+    )
+    signal_price_history(campaign.case, price_adjustment)
     if campaign.composition_search:
         compiler_digest = (
             "sha256:"
@@ -478,6 +529,34 @@ def run_research_cycle(
             if permitted["signal.direction"].permits(direction)
             and permitted["signal.official_gate"].permits(gate)
         ]
+        if campaign.signal_model == "LINEAR_SEARCH":
+            family_bound = permitted.get("signal.model_family")
+            if family_bound is None:
+                raise ResearchError("operator-authorized model family bounds required")
+            candidates = [
+                vector + [float(family)]
+                for vector in candidates
+                for family in (0, 1)
+                if family_bound.permits(family)
+            ]
+    names = ["signal.lookback_days"]
+    if campaign.composition_search:
+        names.extend(("signal.direction", "signal.official_gate"))
+    if campaign.signal_model == "LINEAR_SEARCH":
+        names.append("signal.model_family")
+    parent_values = {
+        item.name: item.value for item in campaign.parent.signal.parameters
+    }
+    candidates = [
+        vector
+        for vector in candidates
+        if all(name in parent_values for name in names)
+        and sum(
+            parent_values[name] != value
+            for name, value in zip(names, vector, strict=True)
+        )
+        <= campaign.parent.mutation_policy.max_parameter_changes
+    ]
     choices = [
         parameters
         for parameters in candidates
@@ -487,6 +566,8 @@ def run_research_cycle(
         raise ResearchError("authorized candidate space exhausted")
     proposal: dict[str, Any]
     if len(history) >= 2:
+        research_guard(campaign.campaign_id)
+        verify_research_information(campaign, information_resolver)
         proposal = learned_proposal(campaign, history, choices)
         parameters = tuple(float(value) for value in proposal["selected"])
     else:
@@ -495,6 +576,10 @@ def run_research_cycle(
             if campaign.composition_search
             else (float(campaign.case.lookback),)
         )
+        if campaign.signal_model == "LINEAR_SEARCH":
+            baseline_parameters += (0.0,)
+        if list(baseline_parameters) not in candidates:
+            raise ResearchError("baseline lies outside authorized candidate space")
         parameters = (
             baseline_parameters
             if not trials
@@ -513,6 +598,7 @@ def run_research_cycle(
             "selected": list(parameters),
             "fit_rows": 0,
         }
+    parameters = tuple(float(value) for value in parameters)
     selected = parameters[0]
     memory_digest = (
         "sha256:"
@@ -521,13 +607,15 @@ def run_research_cycle(
     sequence = len(trials)
     changes = {"signal.lookback_days": selected}
     if campaign.composition_search:
-        if len(parameters) != 3:
+        if len(parameters) != (4 if campaign.signal_model == "LINEAR_SEARCH" else 3):
             raise ResearchError(
                 "composition proposal must have exactly three authorized parameters"
             )
         changes.update(
             {"signal.direction": parameters[1], "signal.official_gate": parameters[2]}
         )
+        if campaign.signal_model == "LINEAR_SEARCH":
+            changes["signal.model_family"] = parameters[3]
     current = {
         parameter.name: parameter.value
         for parameter in campaign.parent.signal.parameters
@@ -568,13 +656,16 @@ def run_research_cycle(
             {**campaign.case.model_dump(), "lookback": int(selected)}
         )
         if campaign.composition_search:
-            if len(parameters) != 3:
+            if len(parameters) != (
+                4 if campaign.signal_model == "LINEAR_SEARCH" else 3
+            ):
                 raise ResearchError("composition parameter width mismatch")
             composition = FactorComposition.model_validate(
                 {
                     "lookback": int(selected),
                     "direction": int(parameters[1]),
                     "require_official": bool(parameters[2]),
+                    "price_adjustment": price_adjustment,
                 }
             )
             case = compile_factors(
@@ -583,9 +674,20 @@ def run_research_cycle(
                 instrument=campaign.instrument_id,
                 information=campaign.information,
             )
-            if campaign.signal_model == "RIDGE":
+            if campaign.signal_model != "FACTORS":
                 research_guard(campaign.campaign_id)
-                case, model_receipt = learned_targets(campaign, case)
+                verify_research_information(campaign, information_resolver)
+                family = (
+                    "ELASTIC_NET"
+                    if campaign.signal_model == "LINEAR_SEARCH" and parameters[3] == 1
+                    else "RIDGE"
+                )
+                case, model_receipt = learned_targets(
+                    campaign,
+                    case,
+                    model_family=family,
+                    price_adjustment=price_adjustment,
+                )
                 trial = ResearchTrial.model_validate(
                     {
                         **trial.model_dump(),
@@ -599,6 +701,7 @@ def run_research_cycle(
         evaluated: list[EngineEvidence] = []
         for engine, lock in engines:
             research_guard(campaign.campaign_id)
+            verify_research_information(campaign, information_resolver)
             evaluated.append(
                 run_engine(
                     case,
@@ -610,10 +713,7 @@ def run_research_cycle(
                 )
             )
         results = tuple(evaluated)
-        if (
-            results[0].result.equity != results[1].result.equity
-            or results[0].result.fills != results[1].result.fills
-        ):
+        if not engine_results_match(results[0].result, results[1].result):
             raise ResearchError("dual-engine disagreement")
         score = results[0].result.equity[-1] / case.initial_cash - 1
         baseline = next(

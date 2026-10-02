@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -17,24 +18,46 @@ from ats.data.information import InformationClient, InformationSource, collect_d
 from ats.data.information_analysis import (
     AnalysisPolicy,
     InformationAnalysis,
-    analyze_information,
 )
 from ats.data.information_jobs import (
     InformationSchedule,
     InformationStore,
-    run_information_schedule,
+    ScheduledCollector,
+    run_information_sweep,
 )
 from ats.data.prices import normalize_daily_price
-from ats.data.storage import StoragePermit
+from ats.data.storage import PayloadManifest, StoragePermit
 from ats.demo import create_synthetic_case
 from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipManifest
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import SourceAllowlist
 from ats.domain.prices import SEOUL, DailyPrice
-from ats.domain.strategy import ArtifactRef, StrategySpec
+from ats.domain.strategy import ArtifactRef, FrozenModel, StrategySpec
 from ats.domain.universe import UniverseMembershipArtifact
 from ats.operator import OperatorCommand, OperatorIdentity, OperatorStore
 from ats.rsi import ResearchBudget, ResearchCampaign, ResearchStore, run_research_cycle
+
+
+class InformationAuthority(FrozenModel):
+    policy: SourceAllowlist
+    permit: StoragePermit
+
+
+def information_resolver_for(
+    root: Path,
+) -> Callable[[PayloadManifest], InformationAnalysis]:
+    def resolve(manifest: PayloadManifest) -> InformationAnalysis:
+        authority = InformationAuthority.model_validate_json(
+            (root / "information-authority.json").read_bytes()
+        )
+        return InformationStore(root / "information.sqlite3").read_analysis(
+            manifest,
+            now=datetime.now(UTC),
+            policy=authority.policy,
+            permit=authority.permit,
+        )
+
+    return resolve
 
 
 def run_workflow(
@@ -43,18 +66,16 @@ def run_workflow(
     engine_image: str,
     proposer_image: str,
     cycles: int = 4,
-    signal_model: Literal["FACTORS", "RIDGE"] = "FACTORS",
+    signal_model: Literal["FACTORS", "RIDGE", "LINEAR_SEARCH"] = "FACTORS",
     case_file: Path = Path("research/engines/case.json"),
+    lean_lock: Path = Path("research/engines/packages.lock.json"),
 ) -> dict[str, object]:
     if not 2 <= cycles <= 6:
         raise ValueError("bounded synthetic workflow requires two to six cycles")
     root.mkdir(parents=True, exist_ok=True)
     configuration = root / "campaign.json"
     operator = OperatorStore(root / "operator.sqlite3")
-    qlib_lock, lean_lock = (
-        Path("research/qlib/requirements.lock"),
-        Path("research/engines/packages.lock.json"),
-    )
+    qlib_lock = Path("research/qlib/requirements.lock")
     if configuration.exists():
         campaign = ResearchCampaign.model_validate_json(configuration.read_bytes())
         if (
@@ -146,6 +167,7 @@ def run_workflow(
         )
         store = InformationStore(root / "information.sqlite3")
         analyses: list[InformationAnalysis] = []
+        manifests: list[PayloadManifest] = []
         for index, day in enumerate(case.dates):
             at = datetime.combine(day, time(8), tzinfo=SEOUL)
             body = {
@@ -186,27 +208,45 @@ def run_workflow(
                 clock=lambda at=at: at,
             )
             try:
-                while (
-                    run_information_schedule(
-                        store,
-                        schedule,
-                        client,
-                        lambda lower, upper, client=client: collect_dart(
+                sweep = run_information_sweep(
+                    (
+                        ScheduledCollector(
+                            store,
+                            schedule,
                             client,
-                            start=lower.astimezone(SEOUL).date(),
-                            end=upper.astimezone(SEOUL).date(),
-                            key=SecretStr("synthetic-not-a-key"),
+                            lambda lower, upper, client=client: collect_dart(
+                                client,
+                                start=lower.astimezone(SEOUL).date(),
+                                end=upper.astimezone(SEOUL).date(),
+                                key=SecretStr("synthetic-not-a-key"),
+                            ),
                         ),
+                    ),
+                    max_steps=32,
+                    guard=lambda: None,
+                )
+                if sweep.failures or sweep.budget_exhausted:
+                    raise ValueError(
+                        "synthetic collection incomplete; research is blocked"
                     )
-                    is not None
-                ):
-                    pass
             finally:
                 client.close()
-            observations = store.observations(
-                at=at, now=at, policy=policy, permit=permit
+            analysis, manifest = store.retain_analysis(
+                f"information-{index}",
+                analysis_policy,
+                at=at,
+                now=at,
+                policy=policy,
+                permit=permit,
             )
-            analyses.append(analyze_information(observations, analysis_policy, at=at))
+            analyses.append(analysis)
+            manifests.append(manifest)
+        with (root / "information-authority.json").open(
+            "x", encoding="utf-8"
+        ) as stream:
+            stream.write(
+                InformationAuthority(policy=policy, permit=permit).model_dump_json()
+            )
         code = ArtifactRef(
             artifact_id="synthetic-factor-implementation",
             version="1",
@@ -318,14 +358,14 @@ def run_workflow(
                 },
                 "code_artifact": code,
                 "model": ArtifactRef(
-                    artifact_id="ridge-expanding-past-only",
+                    artifact_id="bounded-linear-model-recipe",
                     version="1",
                     digest="sha256:"
                     + hashlib.sha256(
                         Path("research/rsi/propose.py").read_bytes()
                     ).hexdigest(),
                 )
-                if signal_model == "RIDGE"
+                if signal_model != "FACTORS"
                 else None,
                 "features": [
                     ArtifactRef(
@@ -342,10 +382,27 @@ def run_workflow(
                         {"name": "signal.lookback_days", "value": 2},
                         {"name": "signal.direction", "value": 1},
                         {"name": "signal.official_gate", "value": 0},
+                        *(
+                            [{"name": "signal.model_family", "value": 0}]
+                            if signal_model == "LINEAR_SEARCH"
+                            else []
+                        ),
                     ],
                 },
                 "mutation_policy": {
                     "allowed_parameters": [
+                        *(
+                            [
+                                {
+                                    "name": "signal.model_family",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "step": 1,
+                                }
+                            ]
+                            if signal_model == "LINEAR_SEARCH"
+                            else []
+                        ),
                         {
                             "name": "signal.lookback_days",
                             "minimum": 2,
@@ -382,6 +439,7 @@ def run_workflow(
             composition_search=True,
             signal_model=signal_model,
             information=tuple(analyses),
+            information_manifests=tuple(manifests),
         )
         with configuration.open("x", encoding="utf-8") as stream:
             stream.write(campaign.model_dump_json(indent=2))
@@ -411,6 +469,11 @@ def run_workflow(
     snapshot = DataSnapshot.model_validate_json(
         (root / "market-snapshot.json").read_bytes()
     )
+    if (
+        campaign.lean_lock
+        != "sha256:" + hashlib.sha256(lean_lock.read_bytes()).hexdigest()
+    ):
+        raise ValueError("resume dependency lock mismatch")
     if snapshot.content_digest() != campaign.parent.dataset_snapshot.digest:
         raise ValueError("research market snapshot changed")
     resolver = LocalArtifactResolver(root / "market")
@@ -436,6 +499,7 @@ def run_workflow(
             qlib_lock=qlib_lock,
             lean_lock=lean_lock,
             research_guard=operator.require_research_enabled,
+            information_resolver=information_resolver_for(root),
         )
         if trial.status == "AWAITING_REVIEW":
             operator.register_review(
@@ -469,9 +533,14 @@ if __name__ == "__main__":
     parser.add_argument("--proposer-image", required=True)
     parser.add_argument("--cycles", type=int, default=4)
     parser.add_argument(
-        "--signal-model", choices=["FACTORS", "RIDGE"], default="FACTORS"
+        "--signal-model",
+        choices=["FACTORS", "RIDGE", "LINEAR_SEARCH"],
+        default="FACTORS",
     )
     parser.add_argument("--case", type=Path, default=Path("research/engines/case.json"))
+    parser.add_argument(
+        "--lean-lock", type=Path, default=Path("research/engines/packages.lock.json")
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -482,6 +551,7 @@ if __name__ == "__main__":
                 cycles=args.cycles,
                 signal_model=args.signal_model,
                 case_file=args.case,
+                lean_lock=args.lean_lock,
             ),
             indent=2,
         )

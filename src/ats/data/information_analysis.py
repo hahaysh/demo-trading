@@ -23,6 +23,19 @@ class EntityAlias(FrozenModel):
     effective_from: AwareDatetime
     effective_until: AwareDatetime | None = None
 
+    @model_validator(mode="after")
+    def valid_interval(self) -> Self:
+        if (
+            self.effective_until is not None
+            and self.effective_until <= self.effective_from
+        ):
+            raise ValueError("entity alias interval must be nonempty")
+        if not self.company_id.strip() or any(
+            not name.strip() for name in self.aliases
+        ):
+            raise ValueError("entity identifiers and aliases cannot be blank")
+        return self
+
 
 class SourceAssessment(FrozenModel):
     source_id: Identifier
@@ -145,6 +158,28 @@ def analyze_information(
             latest[key] = item
     for item in latest.values():
         if item.supersedes:
+            previous = latest.get((item.source_id, item.supersedes))
+            if (
+                not (item.correction or item.retraction)
+                or previous is None
+                or previous.item_id == item.item_id
+                or previous.observed_at > item.observed_at
+                or item.company_id is not None
+                and previous.company_id != item.company_id
+            ):
+                raise ValueError("correction requires an earlier same-company original")
+            visited = {item.item_id}
+            ancestor = previous
+            while True:
+                if ancestor.item_id in visited:
+                    raise ValueError("cyclic correction links are forbidden")
+                visited.add(ancestor.item_id)
+                if not ancestor.supersedes:
+                    break
+                target = latest.get((ancestor.source_id, ancestor.supersedes))
+                if target is None:
+                    raise ValueError("correction chain is incomplete")
+                ancestor = target
             superseded.add((item.source_id, item.supersedes))
     analyzed: list[AnalyzedText] = []
     for key in sorted(latest):

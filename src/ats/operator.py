@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import jwt
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import Field, SecretStr, TypeAdapter
 
@@ -96,6 +96,7 @@ class PromotionBundle(FrozenModel):
     runs: tuple[ExperimentRun, ...]
     verified_reports: tuple[Sha256Digest, ...]
     paper_sessions: tuple[str, ...]
+    attestations: tuple[str, ...] = ()
 
     def check(self, actor: str, at: datetime) -> None:
         bundle = PromotionBundle.model_validate(self.model_dump())
@@ -126,6 +127,15 @@ class PromotionBundle(FrozenModel):
 
 
 class OperatorStore(LocalPayloadStore):
+    def __init__(
+        self,
+        database: Path,
+        *,
+        promotion_verifier: Callable[[PromotionBundle, datetime], None] | None = None,
+    ) -> None:
+        super().__init__(database)
+        self._promotion_verifier = promotion_verifier
+
     def initialize(self) -> None:
         with self._connection(create=True) as connection:
             connection.execute(
@@ -185,6 +195,9 @@ class OperatorStore(LocalPayloadStore):
                 promotion.check(identity.subject, datetime.now(UTC))
                 if request.target_digest != promotion.strategy.content_digest():
                     raise ValueError("promotion target mismatch")
+                if self._promotion_verifier is None:
+                    raise ValueError("independent signed evidence verifier required")
+                self._promotion_verifier(promotion, datetime.now(UTC))
             except ValueError:
                 raise HTTPException(409, "승격 증거를 검증할 수 없습니다.") from None
         self.initialize()
@@ -376,7 +389,11 @@ def create_operator_app(
         )
 
     @app.get("/api/status")
-    def status(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+    def status(
+        response: Response, authorization: Annotated[str | None, Header()] = None
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
         identity, _ = auth.verify(authorization)
         result = store.snapshot()
         result["role"] = identity.role
@@ -467,6 +484,14 @@ def workflow_status(
                         if row[4]
                         else {}
                     )
+                    gate: dict[str, Any] = result.get("review_gate") or {}
+                    checks = TypeAdapter(dict[str, bool]).validate_python(
+                        gate.get("checks", {})
+                    )
+                    dsr: dict[str, Any] = result.get("dsr_diagnostic") or {}
+                    dependence: dict[str, Any] = (
+                        result.get("dependence_diagnostic") or {}
+                    )
                     validations.append(
                         {
                             "campaign": row[0],
@@ -477,9 +502,23 @@ def workflow_status(
                                 "corrected_lower_bound"
                             ),
                             "research_frozen": True,
+                            "review_eligible": gate.get("eligible_for_review"),
+                            "failed_checks": [
+                                name
+                                for name, passed in checks.items()
+                                if passed is not True
+                            ],
+                            "dsr_status": dsr.get("status"),
+                            "dependence_status": dependence.get("status"),
                         }
                     )
     return {
+        "health": [
+            item.model_dump(mode="json")
+            for item in information.health(at=datetime.now(UTC))
+        ]
+        if information.database.exists()
+        else [],
         "jobs": [
             {
                 "run_id": run.run_id,

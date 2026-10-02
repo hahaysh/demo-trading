@@ -1,13 +1,16 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from ats.backtest.engines import EngineCase
+from ats.backtest.engines import CorporateAction, EngineCase
 from ats.backtest.portfolio import (
     FactorComposition,
     OosEvidence,
+    OosGatePolicy,
     OosProtocol,
+    assess_oos_gate,
     compile_factors,
     evaluate_oos,
 )
@@ -123,6 +126,57 @@ def test_factor_composition_never_uses_future_prices_or_rumor_alone(
     )
 
 
+def test_learned_features_require_explicit_split_adjustment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ats.rsi import learned_targets
+
+    configured = campaign(tmp_path)
+    first = configured.case.dates[0]
+    dates = tuple(first + timedelta(days=index) for index in range(8))
+    split = CorporateAction(
+        action_id="synthetic-split",
+        kind="FORWARD_SPLIT",
+        session=dates[3],
+        known_at=datetime.combine(first, datetime.min.time(), tzinfo=UTC),
+        evidence=configured.parent.code_artifact,
+        new_shares_per_old=2,
+    )
+    case = EngineCase.model_validate(
+        {
+            **configured.case.model_dump(),
+            "dates": dates,
+            "next_session": dates[-1] + timedelta(days=1),
+            "open": (100,) * 3 + (50,) * 5,
+            "close": (100,) * 3 + (50,) * 5,
+            "volume": (100000,) * 8,
+            "corporate_actions": (split,),
+        }
+    )
+    stream = compile_factors(
+        case,
+        FactorComposition(lookback=2, price_adjustment="TOTAL_RETURN"),
+        instrument="krx-test",
+        information=(),
+    )
+    requests: list[dict[str, Any]] = []
+
+    def capture(campaign: ResearchCampaign, request: dict[str, Any]) -> dict[str, Any]:
+        requests.append(request)
+        return {
+            "model": "Ridge/expanding-past-only",
+            "predictions": [0] * 8,
+            "training_rows": [0, 0, 0, 0, 0, 5, 6, 7],
+        }
+
+    monkeypatch.setattr("ats.rsi.model_inference", capture)
+    adjusted, _ = learned_targets(configured, stream, price_adjustment="TOTAL_RETURN")
+    assert requests[0]["features"] == [[0.0, 0.0]] * 8
+    assert adjusted.close == case.close and adjusted.targets == (0,) * 8
+    with pytest.raises(ValueError, match="adjustment protocol"):
+        learned_targets(configured, stream)
+
+
 def test_operator_guard_precedes_research_budget_and_engine_access(
     tmp_path: Path,
 ) -> None:
@@ -141,6 +195,32 @@ def test_operator_guard_precedes_research_budget_and_engine_access(
             qlib_lock=tmp_path / "missing",
             lean_lock=tmp_path / "missing",
             research_guard=deny,
+        )
+    assert not store.database.exists()
+
+
+def test_unretained_information_is_rejected_before_research_budget(
+    tmp_path: Path,
+) -> None:
+    from ats.data.information_analysis import InformationAnalysis
+    from ats.rsi import run_research_cycle
+
+    configured = campaign(tmp_path)
+    analysis = InformationAnalysis(
+        policy_digest="sha256:" + "a" * 64,
+        cutoff=datetime.now(UTC),
+        items=(),
+        features=(),
+    )
+    configured = configured.model_copy(update={"information": (analysis,)})
+    store = ResearchStore(tmp_path / "unretained.sqlite3")
+    with pytest.raises(ResearchError, match="retained information"):
+        run_research_cycle(
+            store,
+            configured,
+            qlib_lock=tmp_path / "unused",
+            lean_lock=tmp_path / "unused",
+            research_guard=lambda target: None,
         )
     assert not store.database.exists()
 
@@ -177,10 +257,90 @@ def test_oos_rejects_late_candidate_selection_before_engine(tmp_path: Path) -> N
         )
 
 
+def test_oos_slices_opening_capacity_with_each_fold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = campaign(tmp_path)
+    first = configured.case.dates[0]
+    dates = tuple(first + timedelta(days=index) for index in range(14))
+    case = EngineCase.model_validate(
+        {
+            **configured.case.model_dump(),
+            "dates": dates,
+            "next_session": dates[-1] + timedelta(days=1),
+            "open": (100.0,) * 14,
+            "close": (100.0,) * 14,
+            "volume": (100000,) * 14,
+            "opening_capacity": tuple(range(14)),
+            "price_tick": 1,
+        }
+    )
+
+    def inspect_case(sample: EngineCase, **kwargs: object):
+        assert sample.opening_capacity == (5, 6, 7)
+        assert sample.price_tick == 1
+        raise RuntimeError("fold reached engine boundary")
+
+    monkeypatch.setattr("ats.backtest.portfolio.run_engine", inspect_case)
+    with pytest.raises(RuntimeError, match="engine boundary"):
+        evaluate_oos(
+            case,
+            FactorComposition(lookback=2),
+            OosProtocol(
+                minimum_train=3, test_size=3, label_horizon=1, embargo=1, total_trials=4
+            ),
+            selection_cutoff=datetime(2020, 1, 1, tzinfo=UTC),
+            information=(),
+            instrument="krx-test",
+            candidate_digest=configured.parent.content_digest(),
+            snapshot_digest=configured.parent.dataset_snapshot.digest,
+            image_digest=configured.parent.container_image_digest,
+            qlib_lock=tmp_path / "unused",
+            lean_lock=tmp_path / "unused",
+            guard=lambda: None,
+        )
+
+
+def test_oos_gate_refuses_empty_evidence_and_unapproved_policy() -> None:
+    protocol = OosProtocol(
+        minimum_train=10, test_size=3, label_horizon=1, embargo=1, total_trials=4
+    )
+    at = datetime(2026, 10, 2, tzinfo=UTC)
+    evidence = OosEvidence(
+        protocol_digest=evidence_digest(protocol),
+        candidate_digest="sha256:" + "a" * 64,
+        case_digest="sha256:" + "b" * 64,
+        selection_cutoff=at,
+        fold_results=(),
+        corrected_lower_bound=0,
+    )
+    policy = OosGatePolicy.model_validate(
+        {"metadata": {"policy_id": "synthetic-gate", "version": "1"}}
+    )
+    result = assess_oos_gate(evidence, protocol, policy, at=at)
+    assert not result.eligible_for_review and not result.deployment_ready
+    assert not result.checks["approved_policy"]
+    assert not result.checks["paired_engines"]
+    assert not result.checks["sample_size"]
+    assert not result.checks["regime_coverage"]
+    with pytest.raises(ValueError, match="protocol mismatch"):
+        assess_oos_gate(
+            evidence, protocol.model_copy(update={"total_trials": 5}), policy, at=at
+        )
+
+
 def test_holdout_is_frozen_cached_and_never_becomes_search_feedback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configured = campaign(tmp_path)
+    lock = tmp_path / "unused"
+    lock.write_bytes(b"synthetic lock")
+    import hashlib
+
+    digest = "sha256:" + hashlib.sha256(lock.read_bytes()).hexdigest()
+    configured = configured.model_copy(
+        update={"qlib_lock": digest, "lean_lock": digest}
+    )
     store = ValidationStore(tmp_path / "research.sqlite3")
     now = datetime.now(UTC)
     lease = store.claim(configured, at=now)
@@ -222,6 +382,18 @@ def test_holdout_is_frozen_cached_and_never_becomes_search_feedback(
         protocol=protocol,
         validator_digest=validator_digest(),
     )
+    for field, value in (("price_tick", 1), ("opening_capacity", (1,) * len(dates))):
+        changed = request.model_copy(
+            update={"market": market.model_copy(update={field: value})}
+        )
+        with pytest.raises(ResearchError, match="unchanged research"):
+            validate_candidate(
+                store,
+                changed,
+                qlib_lock=tmp_path / "unused",
+                lean_lock=tmp_path / "unused",
+                guard=lambda target: None,
+            )
     evidence = OosEvidence(
         protocol_digest=evidence_digest(protocol),
         candidate_digest=trial.candidate.content_digest(),

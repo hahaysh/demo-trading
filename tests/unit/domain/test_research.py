@@ -651,9 +651,18 @@ def test_promotion_receipt_round_trip_and_resolved_evidence() -> None:
 
 def test_authenticated_selection_is_atomic_and_never_activates_broker(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import hashlib
+
+    import jwt
     from fastapi import HTTPException
 
+    from ats.evidence import (
+        AttestedArtifact,
+        EvidenceAuthority,
+        SignedPromotionVerifier,
+    )
     from ats.operator import (
         OperatorCommand,
         OperatorIdentity,
@@ -661,18 +670,113 @@ def test_authenticated_selection_is_atomic_and_never_activates_broker(
         PromotionBundle,
     )
 
+    now = datetime.now(UTC)
+    monkeypatch.setitem(globals(), "FREEZE", now - timedelta(days=40))
+    monkeypatch.setitem(globals(), "START", now - timedelta(days=1))
     policy, results, runs = _promotion_evidence()
     decision = PromotionDecision.model_validate(
         _promotion_payload(policy, results, runs)
     )
+    blobs: dict[str, bytes] = {}
+
+    def artifact(payload: bytes) -> str:
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        blobs[digest] = payload
+        return digest
+
+    sources = tuple(
+        artifact(item.model_dump_json().encode()) for item in (*runs, *results)
+    )
+    reviewed_at = decision.review.reviewed_at
+    report = AttestedArtifact(
+        kind="REPORT",
+        mode="SYNTHETIC",
+        strategy_digest=_strategy().content_digest(),
+        policy_digest=evidence_digest(policy),
+        started_at=reviewed_at - timedelta(hours=2),
+        completed_at=reviewed_at - timedelta(hours=1),
+        reconciliation_complete=True,
+        source_artifacts=sources,
+    )
+    report_digest = artifact(report.model_dump_json().encode())
+    reference = ARTIFACT.model_copy(update={"digest": report_digest})
+    review = decision.review.model_copy(
+        update={
+            "gates": tuple(
+                gate.model_copy(update={"report": reference})
+                for gate in decision.review.gates
+            )
+        }
+    )
+    assert decision.approval is not None
+    approval = decision.approval.model_copy(
+        update={"review_digest": evidence_digest(review), "evidence": reference}
+    )
+    decision = PromotionDecision.model_validate(
+        {**decision.model_dump(), "review": review, "approval": approval}
+    )
+    key = "public-synthetic-evidence-fixture-key-not-a-real-credential-0000"
+    authorities = tuple(
+        EvidenceAuthority.model_validate(
+            {
+                "key_id": "fixture-" + kind.lower().replace("_", "-"),
+                "issuer": "synthetic-observer",
+                "subject": "fixture-observer",
+                "kind": kind,
+                "algorithm": "HS256",
+                "verification_key": key,
+            }
+        )
+        for kind in ("REPORT", "PAPER_SESSION")
+    )
+
+    def attest(document: AttestedArtifact, identifier: str) -> str:
+        authority = next(item for item in authorities if item.kind == document.kind)
+        return jwt.encode(
+            {
+                "iss": authority.issuer,
+                "sub": authority.subject,
+                "aud": "ats-promotion-evidence",
+                "jti": identifier,
+                "iat": int(now.timestamp()),
+                "nbf": int(now.timestamp()),
+                "exp": int(now.timestamp()) + 300,
+                "artifact_digest": artifact(document.model_dump_json().encode()),
+            },
+            key,
+            algorithm="HS256",
+            headers={"kid": authority.key_id},
+        )
+
+    attestations = [attest(report, "fixture-report")]
+    sessions: list[str] = []
+    for index in range(20):
+        at = (reviewed_at - timedelta(days=index + 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        document = AttestedArtifact(
+            kind="PAPER_SESSION",
+            mode="SYNTHETIC",
+            strategy_digest=report.strategy_digest,
+            policy_digest=report.policy_digest,
+            account_alias="fixture-paper",
+            session=at.date(),
+            started_at=at,
+            completed_at=at + timedelta(hours=1),
+            reconciliation_complete=True,
+            source_artifacts=(artifact(f"synthetic session {index}".encode()),),
+        )
+        sessions.append(str(document.session))
+        attestations.append(attest(document, f"fixture-session-{index}"))
     bundle = PromotionBundle(
         strategy=_strategy(),
         decision=decision,
         policy=policy,
         evaluations=results,
         runs=runs,
-        verified_reports=(ARTIFACT.digest,),
-        paper_sessions=tuple(f"2026-09-{day:02d}" for day in range(1, 21)),
+        verified_reports=(report_digest,),
+        paper_sessions=tuple(sessions),
+        attestations=tuple(attestations),
     )
     store = OperatorStore(tmp_path / "operator.sqlite3")
     target = "synthetic-strategy"
@@ -701,6 +805,66 @@ def test_authenticated_selection_is_atomic_and_never_activates_broker(
     )
     with pytest.raises(HTTPException):
         store.command(request, actor, claims, promotion=insufficient)
+    with pytest.raises(HTTPException):
+        store.command(request, actor, claims, promotion=bundle)
+
+    verifier = SignedPromotionVerifier(
+        authorities,
+        blobs.__getitem__,
+        account_alias="fixture-paper",
+        synthetic_only=True,
+    )
+    late = report.model_copy(update={"completed_at": now - timedelta(seconds=1)})
+    with pytest.raises(ValueError, match="after the human review"):
+        verifier(
+            bundle.model_copy(
+                update={
+                    "attestations": (
+                        attest(late, "fixture-late"),
+                        *bundle.attestations[1:],
+                    )
+                }
+            ),
+            now,
+        )
+    early_at = (bundle.strategy.version.created_at - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    early = report.model_copy(
+        update={
+            "kind": "PAPER_SESSION",
+            "account_alias": "fixture-paper",
+            "session": early_at.date(),
+            "started_at": early_at,
+            "completed_at": early_at + timedelta(hours=1),
+        }
+    )
+    with pytest.raises(ValueError, match="precedes strategy"):
+        verifier(
+            bundle.model_copy(
+                update={
+                    "attestations": (
+                        bundle.attestations[0],
+                        attest(early, "fixture-early"),
+                        *bundle.attestations[2:],
+                    )
+                }
+            ),
+            now,
+        )
+    with pytest.raises(ValueError, match="replayed"):
+        verifier(
+            bundle.model_copy(
+                update={"attestations": (*bundle.attestations, bundle.attestations[0])}
+            ),
+            now,
+        )
+    wrong_account = SignedPromotionVerifier(
+        authorities, blobs.__getitem__, account_alias="other-paper", synthetic_only=True
+    )
+    with pytest.raises(ValueError, match="account"):
+        wrong_account(bundle, now)
+    store = OperatorStore(store.database, promotion_verifier=verifier)
     selected = store.command(request, actor, claims, promotion=bundle)
     assert selected["status"] == "SELECTED_NOT_ACTIVATED"
     assert store.snapshot()["broker_execution_enabled"] is False

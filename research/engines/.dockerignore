@@ -6,3 +6,5 @@
 !Runner.csproj
 !LeanRunner.cs
 !packages.lock.json
+!security-probe/
+!security-probe/**

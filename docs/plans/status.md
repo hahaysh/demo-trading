@@ -6,6 +6,22 @@ Last updated: 2026-10-02
 
 ## Active Milestone
 
+최신 로컬 검증은 **698 passed, 2 skipped, 1 warning**이며 타입·lock·4종 schema·JS 검사를 통과했습니다.
+공유 계정·호가/capacity·합성 분할/순배당, 독립 서명 증거, bounded 상주 수집과 health를 추가했고
+ProDotNetZip 기반 고정 소스 보안 재빌드로 실제 4주기 RSI·holdout·재개를 실행했습니다.
+현재 증거는 `.local/rsi-w8-20261002/`, 상세는
+[Current Verification and Boundaries](rsi-development-plan.md#current-verification-and-boundaries)입니다.
+KRX 세 시장 기본정보·DART 경유 거래소 공시, 자료 분류 권한과 게시물 철회 격리, 명시적
+총수익 학습 특징·RS256 검증도 추가했습니다. 역분할/단주/합병 등 추가 시장 구현과 실제 운영
+근거·외부 계약·승인 대기를 구분하며 모두 구현됐다고 표시하지 않습니다.
+실자료·운영 신원·실제 paper 세션·ADR 0004는 미승인/미연결이며 A-E 전체는 미완료입니다.
+
+후속 연속 개발은 [Implementation Follow-Up](rsi-development-plan.md#implementation-follow-up)에
+기록합니다. 원문/분석 보존 재검증, Ridge/ElasticNet 탐색, block bootstrap·리뷰 게이트,
+독립 서명 증거 검증, 데이터 복구와 상수 슬리피지의 실제 두 엔진 비교를 추가했습니다.
+새 합성 root는 `.local/rsi-retained-20261002/`이며 전체 ATS는 여전히 미완료입니다.
+아래 677개 및 그 이전 내용은 앞선 체크포인트이고 최신 실행 근거는 후속 기록을 따릅니다.
+
 현재 진행 대상은 [RSI ATS A-E 전체 개발](rsi-development-plan.md)입니다.
 현재 재개 작업에서 DART/RSS/Atom/Naver/공개 Telegram export와 공식 KRX 종목 기본정보 어댑터,
 시점별 규칙 분석, 실제 GP 후보 제안·Ridge 신호 학습, 영속 최종 holdout 분리, JWT 운영 API/화면을

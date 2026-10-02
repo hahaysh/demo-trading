@@ -1,0 +1,443 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "QuantConnect.Algorithm": {
+        "type": "Direct",
+        "requested": "[2.5.18127, 2.5.18127]",
+        "resolved": "2.5.18127",
+        "contentHash": "k24QxHjuZvrcVhqoQWXjuZgq9CDJo/xS86z8aOJJz58a99CHRs4AYM3MInFxKt1lgDT3zOxG2X9Aq+xedcODcg==",
+        "dependencies": {
+          "MathNet.Numerics": "5.0.0",
+          "Newtonsoft.Json": "13.0.2",
+          "NodaTime": "3.0.5",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Indicators": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127",
+          "QuantConnect.pythonnet": "2.0.66"
+        }
+      },
+      "QuantConnect.Api": {
+        "type": "Direct",
+        "requested": "[2.5.18127, 2.5.18127]",
+        "resolved": "2.5.18127",
+        "contentHash": "XG4A2Yo6+BAmkA0Yx8YcWRyoluZPjvU3fnZ1jBNYiBfEGtOLyUQiHgNFaXkxOdNiEqg+yJ4xiPAgpfiHnxZnzg==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.2",
+          "NodaTime": "3.0.5",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127",
+          "RestSharp": "106.12.0"
+        }
+      },
+      "QuantConnect.Messaging": {
+        "type": "Direct",
+        "requested": "[2.5.18127, 2.5.18127]",
+        "resolved": "2.5.18127",
+        "contentHash": "kJO00ALh/Y8id0ykaL6SuF2VHFJdWEm6F5pCtqF1EsVQiGEx7JKPzUNI9UwdZFwbM6bWV1xAno4kU7CMIvGObw==",
+        "dependencies": {
+          "NetMQ": "4.0.1.6",
+          "Newtonsoft.Json": "13.0.2",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127"
+        }
+      },
+      "QuantConnect.Queues": {
+        "type": "Direct",
+        "requested": "[2.5.18127, 2.5.18127]",
+        "resolved": "2.5.18127",
+        "contentHash": "35CrCknhl0aU2xFfA2HvEaUmiaIcdDCzh5qWuGFgbENTsqfztBLOccyKmrJ4R8cVW+N02XiSBYcT4IUN6uzKhQ==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.2",
+          "QuantConnect.Brokerages": "2.5.18127",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127"
+        }
+      },
+      "System.Drawing.Common": {
+        "type": "Direct",
+        "requested": "[10.0.12, 10.0.12]",
+        "resolved": "10.0.12",
+        "contentHash": "FBUxiucg2gsnyItbpGgyXI5u8FYLcqdLKS1XJkHHTj3RK1c6kpsJr/Y9i4edUNF7LqCYFrHqpHEvpt8/lNBe9w==",
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "10.0.12"
+        }
+      },
+      "System.Net.Http.WinHttpHandler": {
+        "type": "Direct",
+        "requested": "[10.0.12, 10.0.12]",
+        "resolved": "10.0.12",
+        "contentHash": "/ZxJNyXdRveuvAbHsNTA+LIUIQLojBQB68oNaS4KuMbSVVHxELbQXVYJ8r7KQPhbkN5rDk/+P1bFGKnPnmPqwA=="
+      },
+      "System.Private.ServiceModel": {
+        "type": "Direct",
+        "requested": "[4.10.3, 4.10.3]",
+        "resolved": "4.10.3",
+        "contentHash": "BcUV7OERlLqGxDXZuIyIMMmk1PbqBblLRbAoigmzIUx/M8A+8epvyPyXRpbgoucKH7QmfYdQIev04Phx2Co08A==",
+        "dependencies": {
+          "Microsoft.Bcl.AsyncInterfaces": "5.0.0",
+          "Microsoft.Extensions.ObjectPool": "5.0.10",
+          "System.Security.Cryptography.Xml": "6.0.1"
+        }
+      },
+      "System.Security.Cryptography.Pkcs": {
+        "type": "Direct",
+        "requested": "[10.0.12, 10.0.12]",
+        "resolved": "10.0.12",
+        "contentHash": "W6BsawU2tB2qy6u4+3cBOSOmiTUgYWW365b5WMVA1bDxQwZZeNWD+qufKJkDQNKzAKq4b6Q04DDKhmr2SNJ1eg=="
+      },
+      "System.ServiceModel.Primitives": {
+        "type": "Direct",
+        "requested": "[4.10.3, 4.10.3]",
+        "resolved": "4.10.3",
+        "contentHash": "aNcdry95wIP1J+/HcLQM/f/AA73LnBQDNc2uCoZ+c1//KpVRp8nMZv5ApMwK+eDNVdCK8G0NLInF+xG3mfQL+g==",
+        "dependencies": {
+          "System.Private.ServiceModel": "4.10.3"
+        }
+      },
+      "Accord": {
+        "type": "Transitive",
+        "resolved": "3.6.0",
+        "contentHash": "xJyL8zhWcfb7eYp4EiXamEkUo3dAvAriOQTWTgulP31wH7BCZqp/rI62+mPn29xcCH8a0iCKRxjEh6p0NsIG1w=="
+      },
+      "Accord.Fuzzy": {
+        "type": "Transitive",
+        "resolved": "3.6.0",
+        "contentHash": "jQGcuUBReN7odJA4OTixVyVJujNW4w7VUZbEqWb9KZ7mYDJDdZUoE+FS1Kx89pIboFQQK7WFxGWSrKwE96g3vw==",
+        "dependencies": {
+          "Accord": "3.6.0",
+          "Accord.Math": "3.6.0",
+          "Accord.Statistics": "3.6.0"
+        }
+      },
+      "Accord.MachineLearning": {
+        "type": "Transitive",
+        "resolved": "3.6.0",
+        "contentHash": "R9iqbkXy4vqXgbJtHV2eW79i7pi8HjZVyG+0WEbbHvNft/rkExN7/o6I53w0GlKQEUPVu12Gr1e6XLBEqw7rLw==",
+        "dependencies": {
+          "Accord": "3.6.0",
+          "Accord.Math": "3.6.0",
+          "Accord.Statistics": "3.6.0"
+        }
+      },
+      "Accord.Math": {
+        "type": "Transitive",
+        "resolved": "3.6.0",
+        "contentHash": "mGhAp+ItUEFI/HUb8krKEwo2tB4SpVpTvZI5U9X+a5WKm8OSSW4Ern1fGq1jm6PXFbhFfhvLWC1WANc3fjrg0Q==",
+        "dependencies": {
+          "Accord": "3.6.0"
+        }
+      },
+      "Accord.Statistics": {
+        "type": "Transitive",
+        "resolved": "3.6.0",
+        "contentHash": "x5ZlX4bkC+OBPGG1cWt7lAWh5YeNadJ3vkfEgNv39EptsBr9Jj3ddRbfSce3oO5vQ6Q2RrtQyekNAL5d7pOkzA==",
+        "dependencies": {
+          "Accord": "3.6.0",
+          "Accord.Math": "3.6.0"
+        }
+      },
+      "AsyncIO": {
+        "type": "Transitive",
+        "resolved": "0.1.69",
+        "contentHash": "xyXJLi+wjy6AtIyWXHXJkPS0gItqVT4lg5w++7bA5YEjugYKdrFMGxCo6KUJ1yYwjriLQJ1g35LDljZs3Q90XQ=="
+      },
+      "CloneExtensions": {
+        "type": "Transitive",
+        "resolved": "1.3.0",
+        "contentHash": "4YL85qfQuWplSQCIML3qAYb4dOHtujD2hCP0JVvai+jQGiM4HLZ8qFipoMwNOA8k16lTX/MaRVULb0kKAbfoOA=="
+      },
+      "CsvHelper": {
+        "type": "Transitive",
+        "resolved": "19.0.0",
+        "contentHash": "vUHF8wPOVvdtUQ4sXQI62jEIGcz5p7MG3Qf4Hazg+3EZQFh+UoTASEG0a1tsGmhNsHZ/Y+qRO+SgLMZO8jNcSg=="
+      },
+      "DynamicInterop": {
+        "type": "Transitive",
+        "resolved": "0.9.1",
+        "contentHash": "n21+Hd+tceX8lgaOosPV+Pne+YqnZUd5RLW3OhnsVxWRzYXiAIAKmKweHIePYeY+fmcn3N5tjkJyQUccFuL3bg=="
+      },
+      "fasterflect": {
+        "type": "Transitive",
+        "resolved": "3.0.0",
+        "contentHash": "nXucxx84mYH+fS9U92a4Ak/MfWP0H204c8D2I64zsOQynnihhavO6HOCUcpp8HfKZMn3aNn01iv1bINnxH7Kow=="
+      },
+      "MathNet.Numerics": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "pg1W2VwaEQMAiTpGK840hZgzavnqjlCMTVSbtVCXVyT+7AX4mc1o89SPv4TBlAjhgCOo9c1Y+jZ5m3ti2YgGgA=="
+      },
+      "McMaster.Extensions.CommandLineUtils": {
+        "type": "Transitive",
+        "resolved": "2.6.0",
+        "contentHash": "paiRzqvqdSFdcWVTXn6SzphajrpjFM5ERiGlgccL5J2lgHbty068D63Maqmj0VTG0G9ciP2m/NSIgGnNv8WOLw==",
+        "dependencies": {
+          "System.ComponentModel.Annotations": "4.7.0"
+        }
+      },
+      "Microsoft.Bcl.AsyncInterfaces": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "W8DPQjkMScOMTtJbPwmPyj9c3zYSFGawDW3jwlBOOsnY+EzZFLgNQ/UMkK35JmkNOVPdCyPr2Tw7Vv9N+KA3ZQ=="
+      },
+      "Microsoft.Extensions.ObjectPool": {
+        "type": "Transitive",
+        "resolved": "5.0.10",
+        "contentHash": "pp9tbGqIhdEXL6Q1yJl+zevAJSq4BsxqhS1GXzBvEsEz9DDNu9GLNzgUy2xyFc4YjB4m4Ff2YEWTnvQvVYdkvQ=="
+      },
+      "Microsoft.IO.RecyclableMemoryStream": {
+        "type": "Transitive",
+        "resolved": "3.0.1",
+        "contentHash": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g=="
+      },
+      "Microsoft.Win32.SystemEvents": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "kdj5cqOwgZCMltEhQ4+WVUoFkMHG08EJfy1MDyS9H+FBg66vTTFyX8YcNl8IQh5wRQv79P+iduQgDGY8ucBR+w=="
+      },
+      "NaCl.Net": {
+        "type": "Transitive",
+        "resolved": "0.1.13",
+        "contentHash": "AVg1455RQnyTy6tiessudruZHvbl70QWRPyx3og2I1Fei17LDNc7Z3DRgqN2+PsySBui/1EDP4A7adhQXydi6g=="
+      },
+      "NetMQ": {
+        "type": "Transitive",
+        "resolved": "4.0.1.6",
+        "contentHash": "nlOXZu8IE46U2LdYyS24N23dLLOP66nnueaOHfklpsnium2g/fX0v8uQZsRsY4GG8cuTh0Q6TcHx4/Cq0wN6zg==",
+        "dependencies": {
+          "AsyncIO": "0.1.69",
+          "NaCl.Net": "0.1.13",
+          "System.ServiceModel.Primitives": "4.4.0"
+        }
+      },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.2",
+        "contentHash": "R2pZ3B0UjeyHShm9vG+Tu0EBb2lC8b0dFzV9gVn50ofHXh9Smjk6kTn7A/FdAsC8B5cKib1OnGYOXxRBz5XQDg=="
+      },
+      "NodaTime": {
+        "type": "Transitive",
+        "resolved": "3.0.5",
+        "contentHash": "ctgx76GTZ3hcE0lV/XepXskkZ2m3F/XSftwb/a3vK+vSorbT3QhGgWp/ZNb13oyKQhBdFIPiISilvx49LQggtw=="
+      },
+      "ProDotNetZip": {
+        "type": "Transitive",
+        "resolved": "1.19.0",
+        "contentHash": "fU07wjo5qIdrHPQrJ49ZllE63hmXGjzslppU24YOmStfJotSQwXFY6i4HwPbKahUCx9A5ebgv/GTCT/mZdRJbg==",
+        "dependencies": {
+          "System.Security.Permissions": "9.0.0"
+        }
+      },
+      "protobuf-net": {
+        "type": "Transitive",
+        "resolved": "3.1.33",
+        "contentHash": "tv6wc8QvCjGOY/grQ/irxUWqRtHpVzOLY87+jvINxYOD5n0o4TX9RukJ/FRkVyMeQtLLhf/0okQFb4rQgoWt8A==",
+        "dependencies": {
+          "protobuf-net.Core": "3.1.33"
+        }
+      },
+      "protobuf-net.Core": {
+        "type": "Transitive",
+        "resolved": "3.1.33",
+        "contentHash": "uq+KLED4Mwx1BnTE5TTtawQgaCRpajcbRKaYsEbY5biWWK1O5+rCBTd6+9EpK6CYxd2POUHkpwTslPs4SCoHOw=="
+      },
+      "QLNet": {
+        "type": "Transitive",
+        "resolved": "1.13.1",
+        "contentHash": "lJrP6Dmr8bqeiqbIce/4RQPOAePFCPzOt2+Wmrqbu5q1egotXx80Flv9rCsZfb443Fi8znM65Lay/PfvJuDfRw=="
+      },
+      "QuantConnect.Algorithm.CSharp": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "Ey/FCTOLaA362Yb9yogdHPUaTIm7R9CpVfL50h+7Klom4rlXnnI9i3zuGi8V9REUrG6qNq/wz9lzGWwe00wn2g==",
+        "dependencies": {
+          "Accord": "3.6.0",
+          "Accord.Fuzzy": "3.6.0",
+          "Accord.MachineLearning": "3.6.0",
+          "Accord.Math": "3.6.0",
+          "Accord.Statistics": "3.6.0",
+          "DynamicInterop": "0.9.1",
+          "MathNet.Numerics": "5.0.0",
+          "Newtonsoft.Json": "13.0.2",
+          "NodaTime": "3.0.5",
+          "QuantConnect.Algorithm": "2.5.18127",
+          "QuantConnect.Algorithm.Framework": "2.5.18127",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Indicators": "2.5.18127",
+          "QuantConnect.pythonnet": "2.0.66"
+        }
+      },
+      "QuantConnect.Algorithm.Framework": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "KDtoNz7o5rfal1othgtWkYcGNfagGsdIwl24+M6sxM0COZAkRDS0fGgmVFf0jBDBlLTfg6vOHDlwu7B/84hsCg==",
+        "dependencies": {
+          "Accord": "3.6.0",
+          "Accord.Math": "3.6.0",
+          "Accord.Statistics": "3.6.0",
+          "MathNet.Numerics": "5.0.0",
+          "NodaTime": "3.0.5",
+          "QuantConnect.Algorithm": "2.5.18127",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Indicators": "2.5.18127",
+          "QuantConnect.pythonnet": "2.0.66"
+        }
+      },
+      "QuantConnect.AlgorithmFactory": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "F+SAjUdeRnDASVsvSyCmHeNbAPbV/Q93dimdtarosRCW4FGMU/yRq63qVZNj3PfX6atKMwS8bSPex1gKc6xTdA==",
+        "dependencies": {
+          "NodaTime": "3.0.5",
+          "QuantConnect.Algorithm": "2.5.18127",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127",
+          "QuantConnect.pythonnet": "2.0.66"
+        }
+      },
+      "QuantConnect.Brokerages": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "zVG3vROnkI2ZfiPU+QNzqo5Kh++NubwLAI2FkDXGd9ysX/G0JmE3QZGxeNFxT8YB9ya2/yaf4+kxfftK0dZxwg==",
+        "dependencies": {
+          "CsvHelper": "19.0.0",
+          "Newtonsoft.Json": "13.0.2",
+          "QuantConnect.Api": "2.5.18127",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Compression": "2.5.18127",
+          "QuantConnect.Configuration": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127",
+          "RestSharp": "106.12.0"
+        }
+      },
+      "QuantConnect.Configuration": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "gDLN1O8XSSczioo2bMkcj8/MfphBy1B2Nc5H5SxpnjhdnBVfp56t0a70JRMrc36Iaw6aH3eD8aaJubqignMyIA==",
+        "dependencies": {
+          "McMaster.Extensions.CommandLineUtils": "2.6.0",
+          "Newtonsoft.Json": "13.0.2",
+          "QuantConnect.Logging": "2.5.18127"
+        }
+      },
+      "QuantConnect.Indicators": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "d2nGVWVVAQSo2J2K/S9afQPgfF91CLf7scpkuwcmd39UMeAT6TxXj6tORYTVD2/SuzcGsC1/9Qzp3H/Y38PRQw==",
+        "dependencies": {
+          "MathNet.Numerics": "5.0.0",
+          "QuantConnect.Common": "2.5.18127",
+          "QuantConnect.Logging": "2.5.18127",
+          "QuantConnect.pythonnet": "2.0.66"
+        }
+      },
+      "QuantConnect.Logging": {
+        "type": "Transitive",
+        "resolved": "2.5.18127",
+        "contentHash": "zFNwuRgtT/WpmxgHfGdYCFPuAiwgaw9F8BjKa7m428Dnz0zj34Fd/OlsNexLJQ+fGa6nRge6fSbSuy6Xpsqhng==",
+        "dependencies": {
+          "System.ComponentModel.Composition": "6.0.0"
+        }
+      },
+      "QuantConnect.pythonnet": {
+        "type": "Transitive",
+        "resolved": "2.0.66",
+        "contentHash": "JCuBtZ9EnUrniPNPQLnopVeJ9OfsUk/oN8ptuJMuv4iM8TAlu0jLogX6ni6joL97i8n8lIpZvjXklxVeTibALw==",
+        "dependencies": {
+          "fasterflect": "3.0.0"
+        }
+      },
+      "RestSharp": {
+        "type": "Transitive",
+        "resolved": "106.12.0",
+        "contentHash": "irOsQHe5nTJB0BKxGQnTX1dsgCPl5dLTxvL7gbl98JiFPiHMN4wpFyUG/66ZpaFCsIrPKh6XwozWXlwYe9JwYQ=="
+      },
+      "SharpZipLib": {
+        "type": "Transitive",
+        "resolved": "1.3.3",
+        "contentHash": "N8+hwhsKZm25tDJfWpBSW7EGhH/R7EMuiX+KJ4C4u+fCWVc1lJ5zg1u3S1RPPVYgTqhx/C3hxrqUpi6RwK5+Tg=="
+      },
+      "System.ComponentModel.Annotations": {
+        "type": "Transitive",
+        "resolved": "4.7.0",
+        "contentHash": "0YFqjhp/mYkDGpU0Ye1GjE53HMp9UVfGN7seGpAMttAC0C40v5gw598jCgpbBLMmCo0E5YRLBv5Z2doypO49ZQ=="
+      },
+      "System.ComponentModel.Composition": {
+        "type": "Transitive",
+        "resolved": "6.0.0",
+        "contentHash": "60Qv+F7oxomOjJeTDA5Z4iCyFbQ0B/2Mi5HT+13pxxq0lVnu2ipbWMzFB+RWKr3wWKA8BSncXr9PH/fECwMX5Q=="
+      },
+      "System.Security.Cryptography.Xml": {
+        "type": "Transitive",
+        "resolved": "6.0.1",
+        "contentHash": "5e5bI28T0x73AwTsbuFP4qSRzthmU2C0Gqgg3AZ3KTxmSyA+Uhk31puA3srdaeWaacVnHhLdJywCzqOiEpbO/w==",
+        "dependencies": {
+          "System.Security.Cryptography.Pkcs": "6.0.1"
+        }
+      },
+      "System.Security.Permissions": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "H2VFD4SFVxieywNxn9/epb63/IOcPPfA0WOtfkljzNfu7GCcHIBQNuwP6zGCEIi7Ci/oj8aLPUNK9sYImMFf4Q==",
+        "dependencies": {
+          "System.Windows.Extensions": "9.0.0"
+        }
+      },
+      "System.Windows.Extensions": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "U9msthvnH2Fsw7xwAvIhNHOdnIjOQTwOc8Vd0oGOsiRcGMGoBFlUD6qtYawRUoQdKH9ysxesZ9juFElt1Jw/7A=="
+      },
+      "QuantConnect.Common": {
+        "type": "Project",
+        "dependencies": {
+          "CloneExtensions": "[1.3.0, 1.3.0]",
+          "MathNet.Numerics": "[5.0.0, 5.0.0]",
+          "Microsoft.IO.RecyclableMemoryStream": "[3.0.1, 3.0.1]",
+          "Newtonsoft.Json": "[13.0.2, 13.0.2]",
+          "NodaTime": "[3.0.5, 3.0.5]",
+          "QLNet": "[1.13.1, 1.13.1]",
+          "QuantConnect.Compression": "[2.5.18127, )",
+          "QuantConnect.Configuration": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Logging": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.pythonnet": "[2.0.66, 2.0.66]",
+          "fasterflect": "[3.0.0, 3.0.0]",
+          "protobuf-net": "[3.1.33, 3.1.33]"
+        }
+      },
+      "quantconnect.compression": {
+        "type": "Project",
+        "dependencies": {
+          "ProDotNetZip": "[1.19.0, 1.19.0]",
+          "QuantConnect.Logging": "[2.5.18127, 2.5.18127]",
+          "SharpZipLib": "[1.3.3, 1.3.3]"
+        }
+      },
+      "quantconnect.lean.engine": {
+        "type": "Project",
+        "dependencies": {
+          "MathNet.Numerics": "[5.0.0, 5.0.0]",
+          "Newtonsoft.Json": "[13.0.2, 13.0.2]",
+          "NodaTime": "[3.0.5, 3.0.5]",
+          "QuantConnect.Algorithm": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Algorithm.CSharp": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.AlgorithmFactory": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Api": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Brokerages": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Common": "[2.5.18127, )",
+          "QuantConnect.Compression": "[2.5.18127, )",
+          "QuantConnect.Configuration": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Indicators": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.Logging": "[2.5.18127, 2.5.18127]",
+          "QuantConnect.pythonnet": "[2.0.66, 2.0.66]",
+          "fasterflect": "[3.0.0, 3.0.0]"
+        }
+      }
+    }
+  }
+}

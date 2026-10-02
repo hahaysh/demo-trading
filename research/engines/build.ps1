@@ -1,3 +1,5 @@
+param([switch]$SecurityRebuild)
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $context = $PSScriptRoot
@@ -17,7 +19,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot pin Qlib dependency image.' }
 $base = Set-ContentTag $base
 docker build -f "$context/Dockerfile.qlib" --build-arg "QLIB_BASE=$base" -t ats-qlib-backtest:dev $context
 if ($LASTEXITCODE -ne 0) { throw 'Qlib worker build failed.' }
-docker build -f "$context/Dockerfile.lean" -t ats-lean-backtest:dev $context
+if ($SecurityRebuild) {
+	docker build -f "$context/security-probe/Dockerfile" -t ats-lean-backtest:dev $context
+} else {
+	docker build -f "$context/Dockerfile.lean" -t ats-lean-backtest:dev $context
+}
 if ($LASTEXITCODE -ne 0) { throw 'LEAN worker build failed.' }
 $qlib = docker image inspect ats-qlib-backtest:dev --format '{{.Id}}'
 if ($LASTEXITCODE -ne 0) { throw 'Cannot pin Qlib worker.' }
