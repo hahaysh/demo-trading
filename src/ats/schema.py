@@ -11,6 +11,10 @@ from ats.domain.prices import DailyPrice
 from ats.domain.research import EvaluationResult, ExperimentRun
 from ats.domain.strategy import StrategySpec
 from ats.domain.universe import UniverseMembershipArtifact
+from ats.kis_readonly import ProductionAccountObservation, ReadOnlyAccessPermit
+from ats.readonly_smoke import ReadOnceRequest
+from ats.shadow import ShadowProposal, ShadowSessionReport
+from ats.shadow_owner import FiveDayExecution
 
 DATA_SNAPSHOT_SCHEMA_ID = "urn:ats:schema:data-snapshot:v1"
 MARKET_EVENT_SCHEMA_ID = "urn:ats:schema:market-event:v1"
@@ -54,7 +58,16 @@ def render_universe_membership_json_schema() -> str:
 
 
 def execution_json_schemas() -> dict[str, dict[str, object]]:
-    contracts = {"order-intent": OrderIntent, "risk-decision": RiskDecision}
+    contracts = {
+        "order-intent": OrderIntent,
+        "risk-decision": RiskDecision,
+        "read-only-access-permit": ReadOnlyAccessPermit,
+        "account-observation": ProductionAccountObservation,
+        "shadow-proposal": ShadowProposal,
+        "shadow-session-report": ShadowSessionReport,
+        "read-once-request": ReadOnceRequest,
+        "five-day-observation": FiveDayExecution,
+    }
     schemas: dict[str, dict[str, object]] = {}
     for name, model in contracts.items():
         schema: dict[str, object] = model.model_json_schema(mode="validation")

@@ -1,0 +1,671 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "version",
+        "digest"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CalendarSession": {
+      "additionalProperties": false,
+      "properties": {
+        "close": {
+          "format": "date-time",
+          "title": "Close",
+          "type": "string"
+        },
+        "session": {
+          "format": "date",
+          "title": "Session",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "close"
+      ],
+      "title": "CalendarSession",
+      "type": "object"
+    },
+    "CalendarWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "known_at": {
+          "format": "date-time",
+          "title": "Known At",
+          "type": "string"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/CalendarSession"
+          },
+          "title": "Sessions",
+          "type": "array"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "known_at",
+        "evidence",
+        "sessions"
+      ],
+      "title": "CalendarWindow",
+      "type": "object"
+    },
+    "FiveDayPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/PolicyMetadata"
+        },
+        "calendar": {
+          "$ref": "#/$defs/CalendarWindow"
+        },
+        "candidate_artifact_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Candidate Artifact Digest",
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/ShadowSessionSpec"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/ObservationWindow"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "title": "Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session",
+        "approval",
+        "candidate_artifact_digest",
+        "calendar",
+        "windows"
+      ],
+      "title": "FiveDayPlan",
+      "type": "object"
+    },
+    "ObservationWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "ends_at": {
+          "format": "date-time",
+          "title": "Ends At",
+          "type": "string"
+        },
+        "session": {
+          "format": "date",
+          "title": "Session",
+          "type": "string"
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "starts_at",
+        "ends_at"
+      ],
+      "title": "ObservationWindow",
+      "type": "object"
+    },
+    "PolicyMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "owner": {
+          "const": "operator",
+          "default": "operator",
+          "title": "Owner",
+          "type": "string"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PolicyStatus",
+          "default": "DRAFT"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version"
+      ],
+      "title": "PolicyMetadata",
+      "type": "object"
+    },
+    "PolicyStatus": {
+      "enum": [
+        "DRAFT",
+        "APPROVED",
+        "RETIRED"
+      ],
+      "title": "PolicyStatus",
+      "type": "string"
+    },
+    "ReadOnlyAccessPermit": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "agent_editable": {
+          "const": false,
+          "default": false,
+          "title": "Agent Editable",
+          "type": "boolean"
+        },
+        "binding_id": {
+          "format": "uuid",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "credential_ref": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Credential Ref",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "history_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History Start"
+        },
+        "max_bytes": {
+          "default": 1048576,
+          "maximum": 4194304,
+          "minimum": 1024,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "max_calls": {
+          "default": 60,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Calls",
+          "type": "integer"
+        },
+        "max_pages": {
+          "default": 20,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Pages",
+          "type": "integer"
+        },
+        "max_retries": {
+          "default": 0,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "max_seconds": {
+          "default": 120,
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Max Seconds",
+          "type": "integer"
+        },
+        "max_token_requests": {
+          "default": 1,
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Max Token Requests",
+          "type": "integer"
+        },
+        "metadata": {
+          "$ref": "#/$defs/PolicyMetadata"
+        },
+        "operations": {
+          "default": [
+            "BALANCE"
+          ],
+          "items": {
+            "enum": [
+              "BALANCE",
+              "CAPACITY",
+              "HISTORY",
+              "OPEN_ORDERS",
+              "QUOTE",
+              "DAILY"
+            ],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "rate_per_minute": {
+          "default": 1,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Rate Per Minute",
+          "type": "integer"
+        },
+        "retain_observations": {
+          "default": false,
+          "title": "Retain Observations",
+          "type": "boolean"
+        },
+        "source_id": {
+          "default": "kis-market",
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_policy_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Source Policy Digest",
+          "type": "string"
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "pattern": "^[A-Z0-9]{6}$",
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "synthetic_only": {
+          "default": false,
+          "title": "Synthetic Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "metadata",
+        "account_id",
+        "credential_ref",
+        "binding_id",
+        "source_policy_digest",
+        "starts_at",
+        "expires_at"
+      ],
+      "title": "ReadOnlyAccessPermit",
+      "type": "object"
+    },
+    "RightsClass": {
+      "enum": [
+        "PENDING_REVIEW",
+        "APPROVED_PUBLIC",
+        "LICENSED"
+      ],
+      "title": "RightsClass",
+      "type": "string"
+    },
+    "ShadowSessionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "allow_persistence": {
+          "default": false,
+          "title": "Allow Persistence",
+          "type": "boolean"
+        },
+        "candidate_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Candidate Digest",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "SYNTHETIC",
+            "PRODUCTION_READ_ONLY"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "overlay": {
+          "const": "ACTUAL_ACCOUNT_OVERLAY",
+          "default": "ACTUAL_ACCOUNT_OVERLAY",
+          "title": "Overlay",
+          "type": "string"
+        },
+        "read_permit_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Read Permit Digest",
+          "type": "string"
+        },
+        "retention": {
+          "$ref": "#/$defs/PolicyMetadata"
+        },
+        "retention_until": {
+          "format": "date-time",
+          "title": "Retention Until",
+          "type": "string"
+        },
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "account_id",
+        "candidate_digest",
+        "read_permit_digest",
+        "mode",
+        "starts_at",
+        "expires_at",
+        "retention",
+        "retention_until"
+      ],
+      "title": "ShadowSessionSpec",
+      "type": "object"
+    },
+    "SourceAllowlist": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_editable": {
+          "const": false,
+          "default": false,
+          "title": "Agent Editable",
+          "type": "boolean"
+        },
+        "api_version": {
+          "const": "ats/v1",
+          "default": "ats/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "default_action": {
+          "const": "DENY",
+          "default": "DENY",
+          "title": "Default Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "SourceAllowlist",
+          "default": "SourceAllowlist",
+          "title": "Kind",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/PolicyMetadata"
+        },
+        "private_or_mnpi_sources_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Private Or Mnpi Sources Allowed",
+          "type": "boolean"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceEntry"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "metadata",
+        "sources"
+      ],
+      "title": "SourceAllowlist",
+      "type": "object"
+    },
+    "SourceCategory": {
+      "enum": [
+        "MARKET",
+        "DISCLOSURE",
+        "EXCHANGE",
+        "NEWS",
+        "PUBLIC_CHANNEL",
+        "PUBLIC_COMMUNITY"
+      ],
+      "title": "SourceCategory",
+      "type": "string"
+    },
+    "SourceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/SourceCategory"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "legal_review": {
+          "$ref": "#/$defs/SourceReviewState",
+          "default": "PENDING"
+        },
+        "notes": {
+          "maxLength": 2000,
+          "minLength": 3,
+          "title": "Notes",
+          "type": "string"
+        },
+        "rate_limit_per_minute": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Limit Per Minute"
+        },
+        "rights": {
+          "$ref": "#/$defs/SourceRights"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "category",
+        "rights",
+        "notes"
+      ],
+      "title": "SourceEntry",
+      "type": "object"
+    },
+    "SourceReviewState": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "SourceReviewState",
+      "type": "string"
+    },
+    "SourceRights": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/RightsClass"
+        },
+        "redistribution_allowed": {
+          "default": false,
+          "title": "Redistribution Allowed",
+          "type": "boolean"
+        },
+        "retention_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retention Days"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "title": "SourceRights",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:five-day-observation:v1",
+  "additionalProperties": false,
+  "properties": {
+    "permit": {
+      "$ref": "#/$defs/ReadOnlyAccessPermit"
+    },
+    "plan": {
+      "$ref": "#/$defs/FiveDayPlan"
+    },
+    "source_policy": {
+      "$ref": "#/$defs/SourceAllowlist"
+    },
+    "symbol": {
+      "title": "Symbol",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan",
+    "permit",
+    "source_policy",
+    "symbol"
+  ],
+  "title": "FiveDayExecution",
+  "type": "object"
+}

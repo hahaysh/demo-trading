@@ -1,8 +1,10 @@
 """Production read-only transport; no credential discovery or order capability."""
 
+import ctypes
 import hashlib
 import json
 import re
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -21,14 +23,22 @@ from ats.domain.strategy import FrozenModel, Identifier, Sha256Digest
 
 ORIGIN = "https://openapi.koreainvestment.com:9443"
 TOKEN_PATH = "/oauth2/tokenP"
-ReadOperation = Literal["BALANCE", "CAPACITY", "HISTORY", "OPEN_ORDERS", "QUOTE", "DAILY"]
+ReadOperation = Literal[
+    "BALANCE", "CAPACITY", "HISTORY", "OPEN_ORDERS", "QUOTE", "DAILY"
+]
 ROUTES = {
     "BALANCE": ("/uapi/domestic-stock/v1/trading/inquire-balance", "TTTC8434R"),
     "CAPACITY": ("/uapi/domestic-stock/v1/trading/inquire-psbl-order", "TTTC8908R"),
     "HISTORY": ("/uapi/domestic-stock/v1/trading/inquire-daily-ccld", "TTTC0081R"),
-    "OPEN_ORDERS": ("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl", "TTTC0084R"),
+    "OPEN_ORDERS": (
+        "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
+        "TTTC0084R",
+    ),
     "QUOTE": ("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100"),
-    "DAILY": ("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", "FHKST03010100"),
+    "DAILY": (
+        "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+        "FHKST03010100",
+    ),
 }
 
 
@@ -41,7 +51,11 @@ class _TokenResponse(BaseModel):
 
 
 def _header_secret(value: str) -> bool:
-    return bool(value) and len(value) <= 4096 and all(33 <= ord(char) <= 126 for char in value)
+    return (
+        bool(value)
+        and len(value) <= 4096
+        and all(33 <= ord(char) <= 126 for char in value)
+    )
 
 
 class ReadOnlyError(ValueError):
@@ -66,12 +80,14 @@ class ReadOnlyAccessPermit(FrozenModel):
     symbols: tuple[Annotated[str, Field(pattern=r"^[A-Z0-9]{6}$")], ...] = ()
     history_start: date | None = None
     max_calls: Annotated[int, Field(strict=True, ge=1, le=500)] = 60
+    max_token_requests: Annotated[int, Field(strict=True, ge=1, le=6)] = 1
     max_pages: Annotated[int, Field(strict=True, ge=1, le=20)] = 20
     max_bytes: Annotated[int, Field(strict=True, ge=1024, le=4194304)] = 1048576
     max_seconds: Annotated[int, Field(strict=True, ge=1, le=120)] = 120
     max_retries: Annotated[int, Field(strict=True, ge=0, le=2)] = 0
     rate_per_minute: Annotated[int, Field(strict=True, ge=1, le=60)] = 1
     synthetic_only: bool = False
+    retain_observations: bool = False
     agent_editable: Literal[False] = False
 
 
@@ -85,6 +101,69 @@ class ReadOnlyCredentials(FrozenModel):
     product_code: Annotated[str, Field(pattern=r"^[0-9]{2}$")]
 
 
+class WindowsCredentialProvider:
+    def __init__(self, *, backend: Callable[[str], bytes] | None = None) -> None:
+        self._backend = backend or self._read_windows
+
+    def __call__(self, reference: str) -> ReadOnlyCredentials:
+        if not re.fullmatch(r"[a-zA-Z0-9_.-]{3,64}", reference):
+            raise ReadOnlyError("invalid protected credential reference")
+        try:
+            payload = self._backend("ATS/KIS/" + reference)
+            if not 0 < len(payload) <= 2560:
+                raise ValueError("size")
+            credential = ReadOnlyCredentials.model_validate_json(payload)
+            if credential.credential_ref != reference:
+                raise ValueError("reference")
+            return credential
+        except Exception:
+            raise ReadOnlyError("protected credential record unavailable") from None
+
+    @staticmethod
+    def _read_windows(target: str) -> bytes:
+        if sys.platform != "win32":
+            raise ReadOnlyError("Windows credential store required")
+        from ctypes import wintypes
+
+        class Credential(ctypes.Structure):
+            _fields_ = [
+                ("Flags", wintypes.DWORD),
+                ("Type", wintypes.DWORD),
+                ("TargetName", wintypes.LPWSTR),
+                ("Comment", wintypes.LPWSTR),
+                ("LastWritten", wintypes.FILETIME),
+                ("CredentialBlobSize", wintypes.DWORD),
+                ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+                ("Persist", wintypes.DWORD),
+                ("AttributeCount", wintypes.DWORD),
+                ("Attributes", ctypes.c_void_p),
+                ("TargetAlias", wintypes.LPWSTR),
+                ("UserName", wintypes.LPWSTR),
+            ]
+
+        library = ctypes.WinDLL("Advapi32.dll", use_last_error=True)
+        pointer = ctypes.POINTER(Credential)()
+        library.CredReadW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(ctypes.POINTER(Credential)),
+        ]
+        library.CredReadW.restype = wintypes.BOOL
+        library.CredFree.argtypes = [ctypes.c_void_p]
+        library.CredFree.restype = None
+        if not library.CredReadW(target, 1, 0, ctypes.byref(pointer)):
+            raise ReadOnlyError("protected credential record unavailable")
+        try:
+            if not 0 < pointer.contents.CredentialBlobSize <= 2560:
+                raise ReadOnlyError("protected credential record invalid")
+            return ctypes.string_at(
+                pointer.contents.CredentialBlob, pointer.contents.CredentialBlobSize
+            )
+        finally:
+            library.CredFree(pointer)
+
+
 class ReadReceipt(FrozenModel):
     account_id: Identifier
     operation: ReadOperation
@@ -93,7 +172,9 @@ class ReadReceipt(FrozenModel):
     observed_at: AwareDatetime
     response_digest: Sha256Digest
     mode: Literal["SYNTHETIC", "PRODUCTION_READ_ONLY"]
-    binding: Literal["REQUEST_BOUND_NOT_BROKER_SIGNED"] = "REQUEST_BOUND_NOT_BROKER_SIGNED"
+    binding: Literal["REQUEST_BOUND_NOT_BROKER_SIGNED"] = (
+        "REQUEST_BOUND_NOT_BROKER_SIGNED"
+    )
 
 
 Money = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
@@ -104,6 +185,27 @@ class AccountHolding(FrozenModel):
     quantity: Annotated[int, Field(strict=True, ge=0)]
     sellable_quantity: Annotated[int, Field(strict=True, ge=0)]
     market_value: Money
+
+
+class ObservedQuote(FrozenModel):
+    symbol: Annotated[str, Field(pattern=r"^[A-Z0-9]{6}$")]
+    price: Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
+    received_at: AwareDatetime
+    exchange_traded_at: AwareDatetime | None = None
+    halted: bool | None = None
+    status_code: str
+
+
+class ObservedOrder(FrozenModel):
+    reference: Sha256Digest
+    symbol: Annotated[str, Field(pattern=r"^[A-Z0-9]{6}$")]
+    side: Literal["BUY", "SELL"]
+    quantity: Annotated[int, Field(strict=True, ge=0)]
+    filled: Annotated[int, Field(strict=True, ge=0)]
+    remaining: Annotated[int, Field(strict=True, ge=0)]
+    limit_price: Money
+    received_at: AwareDatetime
+    source: Literal["HISTORY", "OPEN_ORDERS"]
 
 
 class ProductionAccountObservation(FrozenModel):
@@ -123,10 +225,17 @@ class ProductionAccountObservation(FrozenModel):
     capacity_price: Money | None = None
     unsettled_receivable: Money | None = None
     credit_amount: Money | None = None
+    quote: ObservedQuote | None = None
+    orders: tuple[ObservedOrder, ...] = ()
+    reservation_crosscheck: Literal["MATCH", "DIFFERENT", "UNKNOWN"] = "UNKNOWN"
     external_reservations_verified: Literal[False] = False
     cash_flow_baseline_verified: Literal[False] = False
     snapshot_atomic: Literal[False] = False
-    uncertainties: tuple[str, ...] = ("CASH_FLOW_BASELINE_UNKNOWN", "RESERVATIONS_UNVERIFIED", "NON_ATOMIC_REST_SNAPSHOT")
+    uncertainties: tuple[str, ...] = (
+        "CASH_FLOW_BASELINE_UNKNOWN",
+        "RESERVATIONS_UNVERIFIED",
+        "NON_ATOMIC_REST_SNAPSHOT",
+    )
 
 
 def _amount(value: object) -> Decimal:
@@ -146,19 +255,147 @@ def _quantity(value: object) -> int:
 
 
 class ReadOnlyKisClient:
+    def observation_bundle(
+        self, symbol: str, day: date
+    ) -> ProductionAccountObservation:
+        with self._lock:
+            payload, quote_receipt = self.quote(symbol)
+            try:
+                output = TypeAdapter(dict[str, str]).validate_python(payload["output"])
+                if output["stck_shrn_iscd"] != symbol:
+                    raise ValueError("quote symbol mismatch")
+                quote = ObservedQuote(
+                    symbol=symbol,
+                    price=_amount(output["stck_prpr"]),
+                    received_at=quote_receipt.observed_at,
+                    halted={"Y": True, "N": False}.get(output.get("temp_stop_yn", "")),
+                    status_code=output["iscd_stat_cls_code"],
+                )
+                account = self.account_observation(symbol=symbol, price=quote.price)
+                open_pages, open_receipts = self.open_orders()
+                history_pages, history_receipts = self.history(day, day)
+                orders: list[ObservedOrder] = []
+                groups: dict[str, dict[str, int]] = {"OPEN_ORDERS": {}, "HISTORY": {}}
+                for source, pages, receipts, field in (
+                    ("OPEN_ORDERS", open_pages, open_receipts, "output"),
+                    ("HISTORY", history_pages, history_receipts, "output1"),
+                ):
+                    for page, receipt in zip(pages, receipts, strict=True):
+                        for row in TypeAdapter(list[dict[str, str]]).validate_python(
+                            page[field]
+                        ):
+                            if source == "HISTORY" and row["ord_dt"] != day.strftime(
+                                "%Y%m%d"
+                            ):
+                                raise ValueError("history date mismatch")
+                            identity = (
+                                self.account_id,
+                                day.isoformat(),
+                                row["ord_gno_brno"],
+                                row["odno"],
+                            )
+                            reference = (
+                                "sha256:"
+                                + hashlib.sha256(
+                                    json.dumps(identity).encode()
+                                ).hexdigest()
+                            )
+                            remaining = _quantity(
+                                row["psbl_qty"]
+                                if source == "OPEN_ORDERS"
+                                else row["rmn_qty"]
+                            )
+                            if reference in groups[source]:
+                                raise ValueError("duplicate broker order")
+                            groups[source][reference] = remaining
+                            order = ObservedOrder.model_validate(
+                                {
+                                    "reference": reference,
+                                    "symbol": row["pdno"],
+                                    "side": {"01": "SELL", "02": "BUY"}[
+                                        row["sll_buy_dvsn_cd"]
+                                    ],
+                                    "quantity": _quantity(row["ord_qty"]),
+                                    "filled": _quantity(row["tot_ccld_qty"]),
+                                    "remaining": remaining,
+                                    "limit_price": _amount(row["ord_unpr"]),
+                                    "received_at": receipt.observed_at,
+                                    "source": source,
+                                }
+                            )
+                            if order.filled + order.remaining > order.quantity:
+                                raise ValueError("order quantities inconsistent")
+                            orders.append(order)
+                receipts = (
+                    *account.receipts,
+                    quote_receipt,
+                    *open_receipts,
+                    *history_receipts,
+                )
+                started = min(item.started_at for item in receipts)
+                observed = max(item.observed_at for item in receipts)
+                if not 0 <= (observed - started).total_seconds() <= 30:
+                    raise ValueError("observation spread exceeded")
+                active = {
+                    key: value for key, value in groups["HISTORY"].items() if value
+                }
+                comparison = (
+                    "MATCH"
+                    if active
+                    == {
+                        key: value
+                        for key, value in groups["OPEN_ORDERS"].items()
+                        if value
+                    }
+                    else "DIFFERENT"
+                )
+                return ProductionAccountObservation.model_validate(
+                    {
+                        **account.model_dump(),
+                        "quote": quote,
+                        "orders": tuple(orders),
+                        "reservation_crosscheck": comparison,
+                        "receipts": receipts,
+                        "started_at": started,
+                        "observed_at": observed,
+                        "uncertainties": (
+                            *account.uncertainties,
+                            "QUOTE_EVENT_TIME_UNKNOWN",
+                            "ORDER_ENDPOINT_COVERAGE_UNVERIFIED",
+                        ),
+                    }
+                )
+            except (ValueError, KeyError, TypeError):
+                raise ReadOnlyError(
+                    "observation bundle incomplete or inconsistent"
+                ) from None
+
     def __init__(
-        self, permit: Callable[[], ReadOnlyAccessPermit], source_policy: Callable[[], SourceAllowlist],
-        credentials: Callable[[str], ReadOnlyCredentials], *, account_id: str,
-        transport: httpx.BaseTransport | None = None, allow_network: bool = False,
+        self,
+        permit: Callable[[], ReadOnlyAccessPermit],
+        source_policy: Callable[[], SourceAllowlist],
+        credentials: Callable[[str], ReadOnlyCredentials],
+        *,
+        account_id: str,
+        transport: httpx.BaseTransport | None = None,
+        allow_network: bool = False,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
+        guard: Callable[[], None] = lambda: None,
+        before_request: Callable[[ReadOnlyAccessPermit, bool], None] | None = None,
     ) -> None:
         if not isinstance(transport, httpx.MockTransport) and not allow_network:
             raise ReadOnlyError("real read-only networking is disarmed")
+        if not isinstance(transport, httpx.MockTransport) and before_request is None:
+            raise ReadOnlyError("persistent collector request authority required")
+        self._before_request = before_request
         self._permit, self._policy, self._loader = permit, source_policy, credentials
+        self._guard = guard
         self.account_id, self._clock, self._monotonic = account_id, clock, monotonic
         self.synthetic = isinstance(transport, httpx.MockTransport)
-        self._http = httpx.Client(transport=transport, timeout=10, follow_redirects=False, trust_env=False)
+        self._http = httpx.Client(
+            transport=transport, timeout=10, follow_redirects=False, trust_env=False
+        )
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._token: SecretStr | None = None
@@ -186,29 +423,49 @@ class ReadOnlyKisClient:
         if operation not in ROUTES:
             raise ReadOnlyError("read operation is not allowlisted")
         try:
+            self._guard()
             permit = ReadOnlyAccessPermit.model_validate(self._permit().model_dump())
             policy = SourceAllowlist.model_validate(self._policy().model_dump())
             now = self._clock()
-            source = next((entry for entry in policy.sources if entry.source_id == permit.source_id), None)
+            source = next(
+                (
+                    entry
+                    for entry in policy.sources
+                    if entry.source_id == permit.source_id
+                ),
+                None,
+            )
             if (
-                self._stop.is_set() or now.tzinfo is None or now.utcoffset() is None
-                or not permit.enabled or permit.account_id != self.account_id
+                self._stop.is_set()
+                or now.tzinfo is None
+                or now.utcoffset() is None
+                or not permit.enabled
+                or permit.account_id != self.account_id
                 or permit.synthetic_only != self.synthetic
                 or permit.metadata.status is not PolicyStatus.APPROVED
-                or permit.metadata.approved_at is None or permit.metadata.approved_at > now
+                or permit.metadata.approved_at is None
+                or permit.metadata.approved_at > now
                 or not permit.starts_at <= now < permit.expires_at
                 or operation not in permit.operations
                 or evidence_digest(policy) != permit.source_policy_digest
                 or policy.metadata.status is not PolicyStatus.APPROVED
-                or policy.metadata.approved_at is None or policy.metadata.approved_at > now
-                or source is None or not source.enabled or source.category.value != "MARKET"
-                or source.legal_review.value != "APPROVED" or source.rights.classification.value != "LICENSED"
-                or source.rights.retention_days is None
-                or source.rights.redistribution_allowed or source.rate_limit_per_minute is None
+                or policy.metadata.approved_at is None
+                or policy.metadata.approved_at > now
+                or source is None
+                or not source.enabled
+                or source.category.value != "MARKET"
+                or source.legal_review.value != "APPROVED"
+                or source.rights.classification.value != "LICENSED"
+                or permit.retain_observations
+                and source.rights.retention_days is None
+                or source.rights.redistribution_allowed
+                or source.rate_limit_per_minute is None
                 or permit.rate_per_minute > source.rate_limit_per_minute
                 or self._monotonic() - self._started >= permit.max_seconds
             ):
-                raise ReadOnlyError("read-only permit, source rights or execution window rejected")
+                raise ReadOnlyError(
+                    "read-only permit, source rights or execution window rejected"
+                )
             digest = evidence_digest(permit)
             if self._permit_digest is not None and self._permit_digest != digest:
                 raise ReadOnlyError("read-only permit changed; create a new session")
@@ -220,48 +477,103 @@ class ReadOnlyKisClient:
     def _load(self, permit: ReadOnlyAccessPermit) -> ReadOnlyCredentials:
         if self._credentials is None:
             try:
-                supplied = ReadOnlyCredentials.model_validate(self._loader(permit.credential_ref).model_dump())
-                if supplied.account_id != permit.account_id or supplied.credential_ref != permit.credential_ref or supplied.binding_id != permit.binding_id or not re.fullmatch(r"[0-9]{8}", supplied.account_number.get_secret_value()) or not _header_secret(supplied.app_key.get_secret_value()) or not _header_secret(supplied.app_secret.get_secret_value()):
+                supplied = ReadOnlyCredentials.model_validate(
+                    self._loader(permit.credential_ref).model_dump()
+                )
+                if (
+                    supplied.account_id != permit.account_id
+                    or supplied.credential_ref != permit.credential_ref
+                    or supplied.binding_id != permit.binding_id
+                    or not re.fullmatch(
+                        r"[0-9]{8}", supplied.account_number.get_secret_value()
+                    )
+                    or not _header_secret(supplied.app_key.get_secret_value())
+                    or not _header_secret(supplied.app_secret.get_secret_value())
+                ):
                     raise ValueError("binding")
                 self._credentials = supplied
             except Exception:
-                raise ReadOnlyError("protected credential binding unavailable") from None
+                raise ReadOnlyError(
+                    "protected credential binding unavailable"
+                ) from None
         return self._credentials
 
-    def _send(self, operation: str, *, token: bool, parameters: dict[str, str], continuation: str = "") -> tuple[dict[str, Any], httpx.Headers, str]:
+    def _send(
+        self,
+        operation: str,
+        *,
+        token: bool,
+        parameters: dict[str, str],
+        continuation: str = "",
+    ) -> tuple[dict[str, Any], httpx.Headers, str]:
         permit = self._authorize(operation)
         if self._calls >= permit.max_calls:
             raise ReadOnlyError("read-only HTTP budget exhausted")
         if self._last_send is not None and not self.synthetic:
-            delay = max(0, self._last_send + 60 / permit.rate_per_minute - self._monotonic())
+            delay = max(
+                0, self._last_send + 60 / permit.rate_per_minute - self._monotonic()
+            )
             if self._stop.wait(delay):
                 raise ReadOnlyError("read-only session stopped")
             permit = self._authorize(operation)
+        if self._before_request is not None:
+            self._before_request(permit, token)
         credentials = self._load(permit)
+        self._authorize(operation)
         path, transaction = ROUTES[operation]
         headers = {"accept-encoding": "identity", "content-type": "application/json"}
         body: dict[str, str] | None = None
         if token:
             path = TOKEN_PATH
-            body = {"grant_type": "client_credentials", "appkey": credentials.app_key.get_secret_value(), "appsecret": credentials.app_secret.get_secret_value()}
+            body = {
+                "grant_type": "client_credentials",
+                "appkey": credentials.app_key.get_secret_value(),
+                "appsecret": credentials.app_secret.get_secret_value(),
+            }
         else:
             if self._token is None:
                 raise ReadOnlyError("read-only token is unavailable")
-            headers.update({"authorization": "Bearer " + self._token.get_secret_value(), "appkey": credentials.app_key.get_secret_value(), "appsecret": credentials.app_secret.get_secret_value(), "tr_id": transaction, "custtype": "P", "tr_cont": continuation})
+            headers.update(
+                {
+                    "authorization": "Bearer " + self._token.get_secret_value(),
+                    "appkey": credentials.app_key.get_secret_value(),
+                    "appsecret": credentials.app_secret.get_secret_value(),
+                    "tr_id": transaction,
+                    "custtype": "P",
+                    "tr_cont": continuation,
+                }
+            )
             if operation not in ("QUOTE", "DAILY"):
-                parameters = {**parameters, "CANO": credentials.account_number.get_secret_value(), "ACNT_PRDT_CD": credentials.product_code}
+                parameters = {
+                    **parameters,
+                    "CANO": credentials.account_number.get_secret_value(),
+                    "ACNT_PRDT_CD": credentials.product_code,
+                }
         self._calls += 1
         self._last_send = self._monotonic()
-        self.audit.append({"method": "POST" if token else "GET", "path": path, "call": self._calls})
+        self.audit.append(
+            {"method": "POST" if token else "GET", "path": path, "call": self._calls}
+        )
         try:
-            with self._http.stream("POST" if token else "GET", ORIGIN + path, headers=headers, params=None if token else parameters, json=body) as response:
-                if response.status_code in (401,403):
+            with self._http.stream(
+                "POST" if token else "GET",
+                ORIGIN + path,
+                headers=headers,
+                params=None if token else parameters,
+                json=body,
+            ) as response:
+                if response.status_code in (401, 403):
                     self.stop()
-                if not token and response.status_code in (429,500,502,503,504):
+                if not token and response.status_code in (429, 500, 502, 503, 504):
                     raise _RetryableReadError("temporary read-only HTTP failure")
                 if response.status_code != 200:
                     raise ReadOnlyError("read-only HTTP response rejected")
-                if response.headers.get("content-type", "").split(";")[0] != "application/json" or response.headers.get("content-encoding", "identity") != "identity":
+                if (
+                    response.headers.get("content-type", "").split(";")[0]
+                    != "application/json"
+                    or response.headers.get("content-encoding", "identity")
+                    != "identity"
+                ):
                     raise ReadOnlyError("read-only response encoding rejected")
                 raw = bytearray()
                 for chunk in response.iter_bytes():
@@ -269,6 +581,7 @@ class ReadOnlyKisClient:
                     if len(raw) + len(chunk) > (65536 if token else permit.max_bytes):
                         raise ReadOnlyError("read-only response exceeds byte budget")
                     raw.extend(chunk)
+
                 def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
                     result: dict[str, Any] = {}
                     for key, value in pairs:
@@ -276,30 +589,54 @@ class ReadOnlyKisClient:
                             raise ValueError("duplicate field")
                         result[key] = value
                     return result
-                data = TypeAdapter(dict[str, Any]).validate_python(json.loads(raw, object_pairs_hook=unique))
+
+                data = TypeAdapter(dict[str, Any]).validate_python(
+                    json.loads(raw, object_pairs_hook=unique)
+                )
                 self._authorize(operation)
                 if not token and data.get("rt_cd") != "0":
                     raise ReadOnlyError("read-only broker response rejected")
-                for key, expected in (("CANO", credentials.account_number.get_secret_value()), ("ACNT_PRDT_CD", credentials.product_code)):
-                    if key in data and data[key] != expected or key.lower() in data and data[key.lower()] != expected:
+                for key, expected in (
+                    ("CANO", credentials.account_number.get_secret_value()),
+                    ("ACNT_PRDT_CD", credentials.product_code),
+                ):
+                    if (
+                        key in data
+                        and data[key] != expected
+                        or key.lower() in data
+                        and data[key.lower()] != expected
+                    ):
                         raise ReadOnlyError("read-only account echo mismatch")
-                return data, response.headers, "sha256:" + hashlib.sha256(raw).hexdigest()
+                return (
+                    data,
+                    response.headers,
+                    "sha256:" + hashlib.sha256(raw).hexdigest(),
+                )
         except _RetryableReadError:
             raise
         except httpx.TransportError:
             if not token:
-                raise _RetryableReadError("temporary read-only transport failure") from None
+                raise _RetryableReadError(
+                    "temporary read-only transport failure"
+                ) from None
             raise ReadOnlyError("read-only authentication transport failed") from None
         except (httpx.HTTPError, ValueError, TypeError):
             raise ReadOnlyError("read-only response or transport failed") from None
 
-    def _get(self, operation: ReadOperation, parameters: dict[str,str], continuation: str) -> tuple[dict[str,Any],httpx.Headers,str]:
+    def _get(
+        self, operation: ReadOperation, parameters: dict[str, str], continuation: str
+    ) -> tuple[dict[str, Any], httpx.Headers, str]:
         permit = self._authorize(operation)
         for attempt in range(permit.max_retries + 1):
             self._authorize(operation)
             self._authenticate(operation)
             try:
-                return self._send(operation,token=False,parameters=parameters,continuation=continuation)
+                return self._send(
+                    operation,
+                    token=False,
+                    parameters=parameters,
+                    continuation=continuation,
+                )
             except _RetryableReadError:
                 if attempt == permit.max_retries:
                     raise ReadOnlyError("read-only retry budget exhausted") from None
@@ -308,7 +645,11 @@ class ReadOnlyKisClient:
         raise ReadOnlyError("read-only request incomplete")
 
     def _authenticate(self, operation: str) -> None:
-        if self._token is not None and self._clock() < self._expiry and self._monotonic() < self._token_deadline:
+        if (
+            self._token is not None
+            and self._clock() < self._expiry
+            and self._monotonic() < self._token_deadline
+        ):
             return
         self._token = None
         if self._monotonic() < self._next_auth:
@@ -318,16 +659,32 @@ class ReadOnlyKisClient:
         data, _, _ = self._send(operation, token=True, parameters={})
         try:
             result = _TokenResponse.model_validate(data)
-            absolute = datetime.strptime(result.access_token_token_expired, "%Y-%m-%d %H:%M:%S").replace(tzinfo=SEOUL)
-            expiry = min(absolute, issued + timedelta(seconds=result.expires_in)) - timedelta(seconds=60)
-            if result.token_type.lower() != "bearer" or not _header_secret(result.access_token.get_secret_value()) or expiry <= self._clock():
+            absolute = datetime.strptime(
+                result.access_token_token_expired, "%Y-%m-%d %H:%M:%S"
+            ).replace(tzinfo=SEOUL)
+            expiry = min(
+                absolute, issued + timedelta(seconds=result.expires_in)
+            ) - timedelta(seconds=60)
+            if (
+                result.token_type.lower() != "bearer"
+                or not _header_secret(result.access_token.get_secret_value())
+                or expiry <= self._clock()
+            ):
                 raise ValueError("invalid token")
             self._token, self._expiry = result.access_token, expiry
-            self._token_deadline = self._monotonic() + (expiry - self._clock()).total_seconds()
+            self._token_deadline = (
+                self._monotonic() + (expiry - self._clock()).total_seconds()
+            )
         except ValueError:
             raise ReadOnlyError("read-only token response rejected") from None
 
-    def _pages(self, operation: ReadOperation, parameters: dict[str, str], *, paginated: bool = True) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
+    def _pages(
+        self,
+        operation: ReadOperation,
+        parameters: dict[str, str],
+        *,
+        paginated: bool = True,
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
         with self._lock:
             permit = self._authorize(operation)
             self._authenticate(operation)
@@ -337,9 +694,30 @@ class ReadOnlyKisClient:
             seen: set[tuple[str, str]] = set()
             for index in range(permit.max_pages):
                 started = self._clock()
-                data, headers, digest = self._get(operation, continuation="N" if index else "", parameters={**parameters, **({"CTX_AREA_FK100":cursor[0], "CTX_AREA_NK100":cursor[1]} if paginated else {})})
+                data, headers, digest = self._get(
+                    operation,
+                    continuation="N" if index else "",
+                    parameters={
+                        **parameters,
+                        **(
+                            {"CTX_AREA_FK100": cursor[0], "CTX_AREA_NK100": cursor[1]}
+                            if paginated
+                            else {}
+                        ),
+                    },
+                )
                 rows.append(data)
-                receipts.append(ReadReceipt(account_id=permit.account_id, operation=operation, permit_digest=evidence_digest(permit), started_at=started, observed_at=self._clock(), response_digest=digest, mode="SYNTHETIC" if self.synthetic else "PRODUCTION_READ_ONLY"))
+                receipts.append(
+                    ReadReceipt(
+                        account_id=permit.account_id,
+                        operation=operation,
+                        permit_digest=evidence_digest(permit),
+                        started_at=started,
+                        observed_at=self._clock(),
+                        response_digest=digest,
+                        mode="SYNTHETIC" if self.synthetic else "PRODUCTION_READ_ONLY",
+                    )
+                )
                 if headers.get("tr_cont", "") not in ("F", "M"):
                     return tuple(rows), tuple(receipts)
                 if not paginated:
@@ -349,12 +727,27 @@ class ReadOnlyKisClient:
                     raise ReadOnlyError("read-only page cursor is invalid")
                 cursor = (str(values[0]).strip(), str(values[1]).strip())
                 if not any(cursor) or cursor in seen:
-                    raise ReadOnlyError("read-only pagination loop or incomplete cursor")
+                    raise ReadOnlyError(
+                        "read-only pagination loop or incomplete cursor"
+                    )
                 seen.add(cursor)
             raise ReadOnlyError("read-only page budget exhausted")
 
-    def balance_pages(self) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
-        return self._pages("BALANCE", {"AFHR_FLPR_YN":"N", "OFL_YN":"", "INQR_DVSN":"02", "UNPR_DVSN":"01", "FUND_STTL_ICLD_YN":"N", "FNCG_AMT_AUTO_RDPT_YN":"N", "PRCS_DVSN":"00"})
+    def balance_pages(
+        self,
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
+        return self._pages(
+            "BALANCE",
+            {
+                "AFHR_FLPR_YN": "N",
+                "OFL_YN": "",
+                "INQR_DVSN": "02",
+                "UNPR_DVSN": "01",
+                "FUND_STTL_ICLD_YN": "N",
+                "FNCG_AMT_AUTO_RDPT_YN": "N",
+                "PRCS_DVSN": "00",
+            },
+        )
 
     def _symbol(self, operation: ReadOperation, symbol: str) -> None:
         permit = self._authorize(operation)
@@ -364,58 +757,157 @@ class ReadOnlyKisClient:
     def quote(self, symbol: str) -> tuple[dict[str, Any], ReadReceipt]:
         with self._lock:
             self._symbol("QUOTE", symbol)
-            pages, receipts = self._pages("QUOTE", {"FID_COND_MRKT_DIV_CODE":"J", "FID_INPUT_ISCD":symbol}, paginated=False)
+            pages, receipts = self._pages(
+                "QUOTE",
+                {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
+                paginated=False,
+            )
             return pages[0], receipts[0]
 
-    def capacity(self, symbol: str, price: Decimal) -> tuple[dict[str, Any], ReadReceipt]:
+    def capacity(
+        self, symbol: str, price: Decimal
+    ) -> tuple[dict[str, Any], ReadReceipt]:
         with self._lock:
             self._symbol("CAPACITY", symbol)
             if not price.is_finite() or price <= 0:
                 raise ReadOnlyError("positive finite capacity reference price required")
-            pages, receipts = self._pages("CAPACITY", {"PDNO":symbol,"ORD_UNPR":str(price),"ORD_DVSN":"01","CMA_EVLU_AMT_ICLD_YN":"N","OVRS_ICLD_YN":"N"}, paginated=False)
+            pages, receipts = self._pages(
+                "CAPACITY",
+                {
+                    "PDNO": symbol,
+                    "ORD_UNPR": str(price),
+                    "ORD_DVSN": "01",
+                    "CMA_EVLU_AMT_ICLD_YN": "N",
+                    "OVRS_ICLD_YN": "N",
+                },
+                paginated=False,
+            )
             return pages[0], receipts[0]
 
-    def history(self, start: date, end: date) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
+    def history(
+        self, start: date, end: date
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
         permit = self._authorize("HISTORY")
         today = self._clock().astimezone(SEOUL).date()
-        if permit.history_start is None or not max(permit.history_start, today-timedelta(days=60)) <= start <= end <= today:
+        if (
+            permit.history_start is None
+            or not max(permit.history_start, today - timedelta(days=60))
+            <= start
+            <= end
+            <= today
+        ):
             raise ReadOnlyError("history range is outside approved recent window")
-        return self._pages("HISTORY", {"INQR_STRT_DT":start.strftime("%Y%m%d"),"INQR_END_DT":end.strftime("%Y%m%d"),"SLL_BUY_DVSN_CD":"00","PDNO":"","CCLD_DVSN":"00","INQR_DVSN":"01","INQR_DVSN_3":"00","ORD_GNO_BRNO":"","ODNO":"","INQR_DVSN_1":"","EXCG_ID_DVSN_CD":"ALL"})
+        return self._pages(
+            "HISTORY",
+            {
+                "INQR_STRT_DT": start.strftime("%Y%m%d"),
+                "INQR_END_DT": end.strftime("%Y%m%d"),
+                "SLL_BUY_DVSN_CD": "00",
+                "PDNO": "",
+                "CCLD_DVSN": "00",
+                "INQR_DVSN": "01",
+                "INQR_DVSN_3": "00",
+                "ORD_GNO_BRNO": "",
+                "ODNO": "",
+                "INQR_DVSN_1": "",
+                "EXCG_ID_DVSN_CD": "ALL",
+            },
+        )
 
     def open_orders(self) -> tuple[tuple[dict[str, Any], ...], tuple[ReadReceipt, ...]]:
-        return self._pages("OPEN_ORDERS", {"INQR_DVSN_1":"0","INQR_DVSN_2":"0"})
+        return self._pages("OPEN_ORDERS", {"INQR_DVSN_1": "0", "INQR_DVSN_2": "0"})
 
-    def daily_prices(self, symbol: str, start: date, end: date) -> tuple[dict[str, Any], ReadReceipt]:
+    def daily_prices(
+        self, symbol: str, start: date, end: date
+    ) -> tuple[dict[str, Any], ReadReceipt]:
         permit = self._authorize("DAILY")
         self._symbol("DAILY", symbol)
-        if permit.history_start is None or not permit.history_start <= start <= end < self._clock().astimezone(SEOUL).date() or (end-start).days > 89:
-            raise ReadOnlyError("daily price range is outside approved completed window")
-        pages, receipts = self._pages("DAILY", {"FID_COND_MRKT_DIV_CODE":"J","FID_INPUT_ISCD":symbol,"FID_INPUT_DATE_1":start.strftime("%Y%m%d"),"FID_INPUT_DATE_2":end.strftime("%Y%m%d"),"FID_PERIOD_DIV_CODE":"D","FID_ORG_ADJ_PRC":"1"}, paginated=False)
+        if (
+            permit.history_start is None
+            or not permit.history_start
+            <= start
+            <= end
+            < self._clock().astimezone(SEOUL).date()
+            or (end - start).days > 89
+        ):
+            raise ReadOnlyError(
+                "daily price range is outside approved completed window"
+            )
+        pages, receipts = self._pages(
+            "DAILY",
+            {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": symbol,
+                "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
+                "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
+                "FID_PERIOD_DIV_CODE": "D",
+                "FID_ORG_ADJ_PRC": "1",
+            },
+            paginated=False,
+        )
         return pages[0], receipts[0]
 
-    def account_observation(self, *, symbol: str, price: Decimal) -> ProductionAccountObservation:
+    def account_observation(
+        self, *, symbol: str, price: Decimal
+    ) -> ProductionAccountObservation:
         with self._lock:
             self._symbol("CAPACITY", symbol)
             pages, receipts = self.balance_pages()
             capacity, capacity_receipt = self.capacity(symbol, price)
-            if (capacity_receipt.observed_at - receipts[0].started_at).total_seconds() > 30:
+            if (
+                capacity_receipt.observed_at - receipts[0].started_at
+            ).total_seconds() > 30:
                 raise ReadOnlyError("account observation time spread exceeded")
             try:
                 holdings: list[AccountHolding] = []
                 summary: dict[str, str] | None = None
                 for page in pages:
-                    totals = TypeAdapter(list[dict[str,str]]).validate_python(page["output2"])
+                    totals = TypeAdapter(list[dict[str, str]]).validate_python(
+                        page["output2"]
+                    )
                     if len(totals) != 1 or summary is not None and summary != totals[0]:
                         raise ReadOnlyError("account changed during pagination")
                     summary = totals[0]
-                    for row in TypeAdapter(list[dict[str,str]]).validate_python(page["output1"]):
-                        holding = AccountHolding(symbol=row["pdno"],quantity=_quantity(row["hldg_qty"]),sellable_quantity=_quantity(row["ord_psbl_qty"]),market_value=_amount(row["evlu_amt"]))
+                    for row in TypeAdapter(list[dict[str, str]]).validate_python(
+                        page["output1"]
+                    ):
+                        holding = AccountHolding(
+                            symbol=row["pdno"],
+                            quantity=_quantity(row["hldg_qty"]),
+                            sellable_quantity=_quantity(row["ord_psbl_qty"]),
+                            market_value=_amount(row["evlu_amt"]),
+                        )
                         if holding.sellable_quantity > holding.quantity:
                             raise ReadOnlyError("sellable quantity exceeds holding")
                         holdings.append(holding)
-                if summary is None or len({item.symbol for item in holdings}) != len(holdings) or sum(item.market_value for item in holdings) != _amount(summary["scts_evlu_amt"]):
+                if (
+                    summary is None
+                    or len({item.symbol for item in holdings}) != len(holdings)
+                    or sum(item.market_value for item in holdings)
+                    != _amount(summary["scts_evlu_amt"])
+                ):
                     raise ReadOnlyError("account holdings do not reconcile")
-                output = TypeAdapter(dict[str,str]).validate_python(capacity["output"])
-                return ProductionAccountObservation(account_id=self.account_id,mode=receipts[0].mode,started_at=receipts[0].started_at,observed_at=capacity_receipt.observed_at,receipts=(*receipts,capacity_receipt),holdings=tuple(holdings),deposit_balance=_amount(summary["dnca_tot_amt"]),total_equity=_amount(summary["tot_evlu_amt"]),securities_value=_amount(summary["scts_evlu_amt"]),cash_orderable=_amount(output["ord_psbl_cash"]),no_margin_buy_amount=_amount(output["nrcvb_buy_amt"]),no_margin_buy_quantity=_quantity(output["nrcvb_buy_qty"]),capacity_symbol=symbol,capacity_price=price,credit_amount=_amount(summary["fncg_amt"]) if "fncg_amt" in summary else None)
+                output = TypeAdapter(dict[str, str]).validate_python(capacity["output"])
+                return ProductionAccountObservation(
+                    account_id=self.account_id,
+                    mode=receipts[0].mode,
+                    started_at=receipts[0].started_at,
+                    observed_at=capacity_receipt.observed_at,
+                    receipts=(*receipts, capacity_receipt),
+                    holdings=tuple(holdings),
+                    deposit_balance=_amount(summary["dnca_tot_amt"]),
+                    total_equity=_amount(summary["tot_evlu_amt"]),
+                    securities_value=_amount(summary["scts_evlu_amt"]),
+                    cash_orderable=_amount(output["ord_psbl_cash"]),
+                    no_margin_buy_amount=_amount(output["nrcvb_buy_amt"]),
+                    no_margin_buy_quantity=_quantity(output["nrcvb_buy_qty"]),
+                    capacity_symbol=symbol,
+                    capacity_price=price,
+                    credit_amount=_amount(summary["fncg_amt"])
+                    if "fncg_amt" in summary
+                    else None,
+                )
             except (ValueError, KeyError, TypeError):
-                raise ReadOnlyError("account observation is incomplete or inconsistent") from None
+                raise ReadOnlyError(
+                    "account observation is incomplete or inconsistent"
+                ) from None

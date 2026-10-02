@@ -1,0 +1,1076 @@
+{
+  "$defs": {
+    "AccountHolding": {
+      "additionalProperties": false,
+      "properties": {
+        "market_value": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Market Value"
+        },
+        "quantity": {
+          "minimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "sellable_quantity": {
+          "minimum": 0,
+          "title": "Sellable Quantity",
+          "type": "integer"
+        },
+        "symbol": {
+          "pattern": "^[A-Z0-9]{6}$",
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "quantity",
+        "sellable_quantity",
+        "market_value"
+      ],
+      "title": "AccountHolding",
+      "type": "object"
+    },
+    "ObservedOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "filled": {
+          "minimum": 0,
+          "title": "Filled",
+          "type": "integer"
+        },
+        "limit_price": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Limit Price"
+        },
+        "quantity": {
+          "minimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "reference": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Reference",
+          "type": "string"
+        },
+        "remaining": {
+          "minimum": 0,
+          "title": "Remaining",
+          "type": "integer"
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "HISTORY",
+            "OPEN_ORDERS"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "symbol": {
+          "pattern": "^[A-Z0-9]{6}$",
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "symbol",
+        "side",
+        "quantity",
+        "filled",
+        "remaining",
+        "limit_price",
+        "received_at",
+        "source"
+      ],
+      "title": "ObservedOrder",
+      "type": "object"
+    },
+    "ObservedQuote": {
+      "additionalProperties": false,
+      "properties": {
+        "exchange_traded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exchange Traded At"
+        },
+        "halted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Halted"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Price"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "status_code": {
+          "title": "Status Code",
+          "type": "string"
+        },
+        "symbol": {
+          "pattern": "^[A-Z0-9]{6}$",
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "price",
+        "received_at",
+        "status_code"
+      ],
+      "title": "ObservedQuote",
+      "type": "object"
+    },
+    "ProductionAccountObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "capacity_price": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capacity Price"
+        },
+        "capacity_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capacity Symbol"
+        },
+        "cash_flow_baseline_verified": {
+          "const": false,
+          "default": false,
+          "title": "Cash Flow Baseline Verified",
+          "type": "boolean"
+        },
+        "cash_orderable": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cash Orderable"
+        },
+        "credit_amount": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credit Amount"
+        },
+        "deposit_balance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Deposit Balance"
+        },
+        "external_reservations_verified": {
+          "const": false,
+          "default": false,
+          "title": "External Reservations Verified",
+          "type": "boolean"
+        },
+        "holdings": {
+          "items": {
+            "$ref": "#/$defs/AccountHolding"
+          },
+          "title": "Holdings",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "SYNTHETIC",
+            "PRODUCTION_READ_ONLY"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "no_margin_buy_amount": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "No Margin Buy Amount"
+        },
+        "no_margin_buy_quantity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "No Margin Buy Quantity"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "orders": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ObservedOrder"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservedQuote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "receipts": {
+          "items": {
+            "$ref": "#/$defs/ReadReceipt"
+          },
+          "title": "Receipts",
+          "type": "array"
+        },
+        "reservation_crosscheck": {
+          "default": "UNKNOWN",
+          "enum": [
+            "MATCH",
+            "DIFFERENT",
+            "UNKNOWN"
+          ],
+          "title": "Reservation Crosscheck",
+          "type": "string"
+        },
+        "securities_value": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Securities Value"
+        },
+        "snapshot_atomic": {
+          "const": false,
+          "default": false,
+          "title": "Snapshot Atomic",
+          "type": "boolean"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "total_equity": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Total Equity"
+        },
+        "uncertainties": {
+          "default": [
+            "CASH_FLOW_BASELINE_UNKNOWN",
+            "RESERVATIONS_UNVERIFIED",
+            "NON_ATOMIC_REST_SNAPSHOT"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncertainties",
+          "type": "array"
+        },
+        "unsettled_receivable": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unsettled Receivable"
+        }
+      },
+      "required": [
+        "account_id",
+        "mode",
+        "started_at",
+        "observed_at",
+        "receipts",
+        "holdings",
+        "deposit_balance",
+        "total_equity",
+        "securities_value"
+      ],
+      "title": "ProductionAccountObservation",
+      "type": "object"
+    },
+    "ReadReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "binding": {
+          "const": "REQUEST_BOUND_NOT_BROKER_SIGNED",
+          "default": "REQUEST_BOUND_NOT_BROKER_SIGNED",
+          "title": "Binding",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "SYNTHETIC",
+            "PRODUCTION_READ_ONLY"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "BALANCE",
+            "CAPACITY",
+            "HISTORY",
+            "OPEN_ORDERS",
+            "QUOTE",
+            "DAILY"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "permit_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Permit Digest",
+          "type": "string"
+        },
+        "response_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Response Digest",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "account_id",
+        "operation",
+        "permit_digest",
+        "started_at",
+        "observed_at",
+        "response_digest",
+        "mode"
+      ],
+      "title": "ReadReceipt",
+      "type": "object"
+    },
+    "ShadowAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_paper_sessions": {
+          "const": 0,
+          "default": 0,
+          "title": "Actual Paper Sessions",
+          "type": "integer"
+        },
+        "broker_orders_sent": {
+          "const": 0,
+          "default": 0,
+          "title": "Broker Orders Sent",
+          "type": "integer"
+        },
+        "checks": {
+          "additionalProperties": {
+            "enum": [
+              "PASS",
+              "BLOCKED",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "title": "Checks",
+          "type": "object"
+        },
+        "context_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Context Digest",
+          "type": "string"
+        },
+        "execution_authorized": {
+          "const": false,
+          "default": false,
+          "title": "Execution Authorized",
+          "type": "boolean"
+        },
+        "observation_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Observation Digest",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "CHECKS_PASSED_ONLY",
+            "BLOCKED",
+            "UNKNOWN"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "proposal_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Proposal Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_digest",
+        "observation_digest",
+        "context_digest",
+        "observed_at",
+        "checks",
+        "outcome"
+      ],
+      "title": "ShadowAssessment",
+      "type": "object"
+    },
+    "ShadowContext": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "asset_class": {
+          "anyOf": [
+            {
+              "enum": [
+                "EQUITY",
+                "ETF"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Class"
+        },
+        "candidate_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Candidate Digest",
+          "type": "string"
+        },
+        "cash_capacity_already_net": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cash Capacity Already Net"
+        },
+        "cash_flow_baseline_verified": {
+          "default": false,
+          "title": "Cash Flow Baseline Verified",
+          "type": "boolean"
+        },
+        "classification_known_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification Known At"
+        },
+        "credit_disabled_verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credit Disabled Verified"
+        },
+        "daily_loss_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Loss Fraction"
+        },
+        "drawdown_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drawdown Fraction"
+        },
+        "eligible_symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Eligible Symbols",
+          "type": "array"
+        },
+        "evidence_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Evidence Digest",
+          "type": "string"
+        },
+        "fee_reserve_bps": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fee Reserve Bps"
+        },
+        "halted": {
+          "default": false,
+          "title": "Halted",
+          "type": "boolean"
+        },
+        "leveraged_or_inverse": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leveraged Or Inverse"
+        },
+        "market_window_end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market Window End"
+        },
+        "market_window_start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market Window Start"
+        },
+        "observation_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Observation Digest",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "owned_symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Owned Symbols",
+          "type": "array"
+        },
+        "quote_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote At"
+        },
+        "quote_price": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Price"
+        },
+        "reservations_verified": {
+          "default": false,
+          "title": "Reservations Verified",
+          "type": "boolean"
+        },
+        "reserved_buy_notional": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "default": {},
+          "title": "Reserved Buy Notional",
+          "type": "object"
+        },
+        "reserved_cash": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved Cash"
+        },
+        "reserved_sell_quantity": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default": {},
+          "title": "Reserved Sell Quantity",
+          "type": "object"
+        },
+        "symbol": {
+          "pattern": "^[A-Z0-9]{6}$",
+          "title": "Symbol",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_digest",
+        "account_id",
+        "symbol",
+        "observation_digest",
+        "observed_at",
+        "valid_until",
+        "evidence_digest"
+      ],
+      "title": "ShadowContext",
+      "type": "object"
+    },
+    "ShadowProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "candidate_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Candidate Digest",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "limit_price": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Limit Price"
+        },
+        "observation_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Observation Digest",
+          "type": "string"
+        },
+        "proposal_id": {
+          "format": "uuid",
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "quantity": {
+          "minimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 3,
+          "title": "Reason",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL",
+            "HOLD"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "symbol": {
+          "pattern": "^[A-Z0-9]{6}$",
+          "title": "Symbol",
+          "type": "string"
+        },
+        "transmittable": {
+          "const": false,
+          "default": false,
+          "title": "Transmittable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "account_id",
+        "candidate_digest",
+        "observation_digest",
+        "created_at",
+        "symbol",
+        "side",
+        "quantity",
+        "limit_price",
+        "reason"
+      ],
+      "title": "ShadowProposal",
+      "type": "object"
+    }
+  },
+  "$id": "urn:ats:schema:shadow-session-report:v1",
+  "additionalProperties": false,
+  "properties": {
+    "actual_paper_sessions": {
+      "const": 0,
+      "default": 0,
+      "title": "Actual Paper Sessions",
+      "type": "integer"
+    },
+    "assessments": {
+      "items": {
+        "$ref": "#/$defs/ShadowAssessment"
+      },
+      "title": "Assessments",
+      "type": "array"
+    },
+    "broker_orders_sent": {
+      "const": 0,
+      "default": 0,
+      "title": "Broker Orders Sent",
+      "type": "integer"
+    },
+    "contexts": {
+      "items": {
+        "$ref": "#/$defs/ShadowContext"
+      },
+      "title": "Contexts",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "execution_authorized": {
+      "const": false,
+      "default": false,
+      "title": "Execution Authorized",
+      "type": "boolean"
+    },
+    "observation": {
+      "$ref": "#/$defs/ProductionAccountObservation"
+    },
+    "proposals": {
+      "items": {
+        "$ref": "#/$defs/ShadowProposal"
+      },
+      "title": "Proposals",
+      "type": "array"
+    },
+    "session_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Session Digest",
+      "type": "string"
+    },
+    "transport_audit": {
+      "items": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "title": "Transport Audit",
+      "type": "array"
+    },
+    "transport_audit_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Transport Audit Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_digest",
+    "observation",
+    "proposals",
+    "contexts",
+    "assessments",
+    "created_at",
+    "transport_audit_digest",
+    "transport_audit"
+  ],
+  "title": "ShadowSessionReport",
+  "type": "object"
+}

@@ -9,17 +9,29 @@ Last updated: 2026-10-02
 
 ## Start Here
 
-최신 요청으로 [실전 조회 전용·shadow 계획](kis-readonly-shadow-plan.md)을 작성했습니다(PROPOSED).
-계획 작성과 구현·실제 인증/조회·기간 제한 관찰은 별도 승인입니다. 이후 사용자 요청이 없는 한
-이 문서를 근거로 키를 읽거나 토큰/조회 요청·정기 수집·실주문을 실행하지 않습니다.
+최신 요청은 [고정 5거래일 관찰](kis-readonly-shadow-plan.md#fixed-five-day-delivery)입니다.
+로컬 owner 입력/인증·단발·영속 발급 통제·관측 정규화·격리·5일 장부/철회/종료 CLI를 구현했고,
+전체 **764 passed, 2 skipped, 1 warning**과 정적/계약 검사를 통과했습니다.
+근거 `.local/five-day-offline-77bf0319/`; 실제 Docker 시험도 합성 입력만 사용했습니다.
+**실제 후보·달력·신원·권리 및 단발 승인 대기**입니다. 실제 5거래일은 시작되지 않았습니다.
+후보 실행 규약 호환은 선택 후 확인하고 가짜 후보로 대체하지 않습니다. 새 모델/정보원/UI 확장은 금지입니다.
+실제 key/token/API/보관/주문/OS 예약/배포/Git 게시를 수행하지 않았으며 다음 단계에 자동 진입하지 않습니다.
 
-현재 작업은 [RSI ATS A-E 개발](rsi-development-plan.md)입니다. 이전 data-to-paper 통합
+이전 요청은 [실전 조회 전용·shadow S1-S2](kis-readonly-shadow-plan.md#implementation-evidence)의
+로컬 구현·합성 시험이며, 전체 **749 passed, 2 skipped, 1 warning**과 정적/계약 검사를 통과했습니다.
+조회 경계·계좌 관측·비전송 진단·장부·인증 화면/복구가 연결됐고 합성 broker 요청 외 실제 요청은 0입니다.
+최신 합성 root `.local/readonly-shadow-s1s2-final-20261002/`, shadow 화면 8769; 이전 RSI 화면은 8768입니다.
+[S3 준비·제한](kis-readonly-shadow-plan.md#remaining-before-s3)은 아직 남아 있습니다.
+실제 자격증명 접근·S3 단발 조회·S4 반복/보관은 미승인입니다. 이 기록을 근거로 실제 키를 읽거나
+토큰/계좌/시세 요청·정기 수집·실주문을 실행하지 않습니다. OS 저장소 테스트는 mock만 사용했습니다.
+
+전체 장기 과제는 [RSI ATS A-E 개발](rsi-development-plan.md)입니다. 이전 data-to-paper 통합
 완료와 구분하며, 실제 정보 수집·계좌/주문·배포·Git 게시 금지 경계를 유지합니다.
 재개 후 실제 GP/Ridge와 dual engine의 다주기·영속 holdout, 인증 운영 화면까지 연결했습니다.
 세부 증거·미완료 행과 [제안 ADR 0004](../adr/0004-paper-trial-authorization.md)를 확인합니다.
 paper 시험 권한은 아직 승인되지 않았으며, 기존 champion 검사를 candidate로 우회하지 않습니다.
 
-최신 재개 근거는 [Current Verification and Boundaries](rsi-development-plan.md#current-verification-and-boundaries)입니다.
+이전 RSI 재개 근거는 [Current Verification and Boundaries](rsi-development-plan.md#current-verification-and-boundaries)입니다.
 698개 전체 테스트, 보안 runtime, 공유 계정·기업행동·명시적 가격 조정, 게시물 철회 격리와
 독립 서명·RS256 검증을 확인했습니다. 새 합성 root는 `.local/rsi-w8-20261002/`, 최신 화면은 8768입니다.
 과거 이미지/lock을 새 보안 runtime과 섞지 말고 연구 안내의 `--lean-lock`을 함께 지정합니다.

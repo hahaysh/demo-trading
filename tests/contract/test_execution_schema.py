@@ -9,7 +9,19 @@ from ats.schema import execution_json_schemas
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("name", ["order-intent", "risk-decision"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "order-intent",
+        "risk-decision",
+        "read-only-access-permit",
+        "account-observation",
+        "shadow-proposal",
+        "shadow-session-report",
+        "read-once-request",
+        "five-day-observation",
+    ],
+)
 def test_execution_schema_matches_model(name: str) -> None:
     filename = f"{name}.v1.schema.json"
     committed: object = json.loads(
@@ -21,7 +33,19 @@ def test_execution_schema_matches_model(name: str) -> None:
     assert schema["additionalProperties"] is False
 
 
-@pytest.mark.parametrize("name", ["order-intent", "risk-decision"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "order-intent",
+        "risk-decision",
+        "read-only-access-permit",
+        "account-observation",
+        "shadow-proposal",
+        "shadow-session-report",
+        "read-once-request",
+        "five-day-observation",
+    ],
+)
 @pytest.mark.parametrize("state", ["missing", "stale"])
 def test_execution_generator_detects_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, state: str

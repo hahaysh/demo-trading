@@ -6,12 +6,28 @@ Last updated: 2026-10-02
 
 ## Active Milestone
 
-2026-10-02 후속 요청으로 [실전 조회 전용·shadow 계획](kis-readonly-shadow-plan.md)을 작성했습니다.
-상태는 PROPOSED이며 이번 요청은 계획 작성만입니다. 로컬 구현/합성 시험, 단발 실제 조회,
-기간 제한 관찰의 승인을 분리합니다. 실전 키·계좌 조회·주문·저장·배포를 새로 실행하지 않았고
-기존 RSI 완료 기준·paper/live 활성화 조건은 변경하지 않았습니다.
+최신 요청은 **계좌 1개·고정 후보 1개·확정 5거래일의 비전송 관찰과 최종 보고서**입니다.
+[Fixed Five-Day Delivery](kis-readonly-shadow-plan.md#fixed-five-day-delivery)에 범위를 고정했습니다.
+보호 입력·RS256 승인/replay, 메모리 단발 CLI, 영속 collector/token 통제, 시세/미체결 대조,
+실제 Docker 격리, 고정 5일 장부·성공/미달 종료·철회와 owner CLI를 추가했습니다.
+현재 전체 검사 **764 passed, 2 skipped, 1 warning**, lint/format/types/lock/4종 schema/JS 통과.
+새 합성 근거 `.local/five-day-offline-77bf0319/`; 기존 paper·위험·주문 스키마 변경 없음.
+실제 후보/실행물·달력·신원·권리 선택과 실제 단발 승인 대기입니다. 후보 호환성은 선택 후 검증하며,
+실제 자격증명·token·조회·실자료 저장·5거래일 관찰은 아직 수행하지 않았습니다.
+선택 질문에는 사용자 부재 안내만 돌아왔으며 실제 실행 승인으로 간주하지 않았습니다.
+이전 749개와 S1-S2 기록을 현재 전체 검증 또는 실제 운영 완료로 해석하지 않습니다.
 
-최신 로컬 검증은 **698 passed, 2 skipped, 1 warning**이며 타입·lock·4종 schema·JS 검사를 통과했습니다.
+2026-10-02 후속 승인으로 [실전 조회 전용·shadow S1-S2](kis-readonly-shadow-plan.md#implementation-evidence)의
+로컬 구현·합성 검증을 수행했습니다. 고정 조회 경로·허가/보호 저장소 경계, 계좌 관측,
+비전송 진단·불변 장부·감독 프로세스·인증된 중단/복구·화면을 연결했습니다.
+당시 전체 검사 **749 passed, 2 skipped, 1 warning**, lint/format/types/lock/4종 schema/JS 통과.
+합성 root `.local/readonly-shadow-s1s2-final-20261002/`, 화면 `http://127.0.0.1:8769/`입니다.
+실제 키·토큰·계좌/시세·실자료 저장·주문·예약·배포·Git 게시를 실행하지 않았습니다.
+S3 이전의 메모리 전용 실행·실제 격리·재시작 token 통제·계좌 대사·보존/신원 준비는
+[Remaining Before S3](kis-readonly-shadow-plan.md#remaining-before-s3)에 구분했습니다.
+S3/S4는 미승인이며 기존 RSI 완료 기준·paper/live 활성화 조건은 변경하지 않았습니다.
+
+이전 RSI 로컬 검증은 **698 passed, 2 skipped, 1 warning**이며 타입·lock·4종 schema·JS 검사를 통과했습니다.
 공유 계정·호가/capacity·합성 분할/순배당, 독립 서명 증거, bounded 상주 수집과 health를 추가했고
 ProDotNetZip 기반 고정 소스 보안 재빌드로 실제 4주기 RSI·holdout·재개를 실행했습니다.
 현재 증거는 `.local/rsi-w8-20261002/`, 상세는

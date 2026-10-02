@@ -1,0 +1,25 @@
+metadata:
+  policy_id: production-readonly-shadow
+  version: 0.1.0
+  status: DRAFT
+  owner: operator
+account_id: unbound-account
+credential_ref: unconfigured-protected-slot
+binding_id: 00000000-0000-0000-0000-000000000000
+source_policy_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+source_id: kis-market
+starts_at: 2026-10-02T00:00:00Z
+expires_at: 2026-10-02T00:00:00Z
+enabled: false
+operations:
+  - BALANCE
+symbols: []
+history_start: null
+max_calls: 60
+max_pages: 20
+max_bytes: 1048576
+max_seconds: 120
+max_retries: 0
+rate_per_minute: 1
+synthetic_only: false
+agent_editable: false
