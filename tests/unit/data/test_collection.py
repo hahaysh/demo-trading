@@ -1,4 +1,6 @@
 import json
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -17,11 +19,25 @@ from ats.data.collection import (
     restore_kis_batch,
     validate_kis_calendar,
 )
+from ats.data.datasets import publish_kis_snapshot, restore_dataset
+from ats.data.jobs import (
+    CollectionJob,
+    CollectionJobError,
+    CollectionJobStore,
+    run_collection_job,
+)
 from ats.data.kis import KisDailyRequest, KisQuoteReceipt
-from ats.data.storage import LocalPayloadStore, StorageError, StoragePermit
+from ats.data.prices import normalize_daily_price
+from ats.data.storage import (
+    LocalPayloadStore,
+    PayloadManifest,
+    StorageError,
+    StoragePermit,
+)
 from ats.domain.governance import evidence_digest
 from ats.domain.policy import SourceAllowlist
 from ats.domain.strategy import ArtifactRef
+from ats.domain.universe import UniverseMembershipArtifact
 
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 SESSION = date(2026, 9, 30)
@@ -194,6 +210,149 @@ def test_validated_synthetic_batch_is_stored_with_observation_and_expiry(
         }
     )
     receipt = replace(_receipt(), policy_digest=evidence_digest(policy))
+    job_store = CollectionJobStore(tmp_path / "jobs.sqlite3")
+    job = CollectionJob(
+        job_id="fixture-job",
+        request=receipt.request,
+        calendar=_calendar(),
+        policy_digest=evidence_digest(policy),
+        permit_digest=evidence_digest(permit),
+        created_at=NOW,
+    )
+    completed = run_collection_job(
+        job_store,
+        job,
+        source_policy=policy,
+        permit=permit,
+        fetch=lambda request: receipt,
+        clock=lambda: NOW,
+    )
+    assert completed.status == "SUCCEEDED"
+    universe = UniverseMembershipArtifact.model_validate(
+        {
+            "manifest_id": "fixture-universe",
+            "as_of": NOW,
+            "members": [
+                {
+                    "instrument_id": "krx-005930",
+                    "asset_class": "EQUITY",
+                    "membership_basis": "KOSPI_200",
+                    "observed_at": CLOSE,
+                    "effective_from": CLOSE,
+                    "evidence": _calendar().evidence,
+                }
+            ],
+        }
+    )
+    publish_kis_snapshot(
+        job_store,
+        (job.job_id,),
+        snapshot_id="fixture-snapshot",
+        universe=universe,
+        observed_through=NOW,
+        now=NOW,
+        source_policy=policy,
+        permit=permit,
+    )
+    dataset, resolver = restore_dataset(
+        LocalPayloadStore(job_store.database),
+        "fixture-snapshot",
+        source_policy=policy,
+        permit=permit,
+        now=NOW,
+    )
+    assert resolver.select_verified_records_as_of(dataset.snapshot, at=CLOSE) == ()
+    selected = resolver.select_verified_records_as_of(dataset.snapshot, at=NOW)
+    assert len(selected) == 1
+    assert selected[0].observed_at == NOW
+    assert normalize_daily_price(resolver, selected[0]).close == 105
+    revised_at = NOW + timedelta(seconds=2)
+    revised_payload = json.loads(receipt.raw_payload)
+    revised_payload["output2"][0]["stck_clpr"] = "106"
+    revised_receipt = replace(
+        receipt,
+        raw_payload=json.dumps(revised_payload).encode(),
+        observed_at=revised_at,
+    )
+    revised_job = job.model_copy(
+        update={"job_id": "revision-job", "created_at": revised_at}
+    )
+    run_collection_job(
+        job_store,
+        revised_job,
+        source_policy=policy,
+        permit=permit,
+        fetch=lambda request: revised_receipt,
+        clock=lambda: revised_at,
+    )
+    publish_kis_snapshot(
+        job_store,
+        (job.job_id, revised_job.job_id),
+        snapshot_id="revised-snapshot",
+        universe=universe.model_copy(update={"as_of": revised_at}),
+        observed_through=revised_at,
+        now=revised_at,
+        source_policy=policy,
+        permit=permit,
+    )
+    revised, revised_resolver = restore_dataset(
+        job_store,
+        "revised-snapshot",
+        source_policy=policy,
+        permit=permit,
+        now=revised_at,
+    )
+    before = revised_resolver.select_verified_records_as_of(
+        revised.snapshot, at=NOW, revision_orders=revised.revisions_at(NOW)
+    )
+    after = revised_resolver.select_verified_records_as_of(
+        revised.snapshot,
+        at=revised_at,
+        revision_orders=revised.revisions_at(revised_at),
+    )
+    assert normalize_daily_price(revised_resolver, before[0]).close == 105
+    assert normalize_daily_price(revised_resolver, after[0]).close == 106
+    assert len(revised.snapshot.records) == 2
+    failed_job = job.model_copy(update={"job_id": "failed-job"})
+
+    def failed_fetch(request: KisDailyRequest) -> KisQuoteReceipt:
+        raise TimeoutError("synthetic transport failure")
+
+    with pytest.raises(TimeoutError):
+        run_collection_job(
+            job_store,
+            failed_job,
+            source_policy=policy,
+            permit=permit,
+            fetch=failed_fetch,
+            clock=lambda: NOW,
+        )
+    assert job_store.get_job(failed_job.job_id).status == "FAILED"
+    retried = run_collection_job(
+        job_store,
+        failed_job,
+        source_policy=policy,
+        permit=permit,
+        fetch=lambda request: receipt,
+        clock=lambda: NOW,
+    )
+    assert retried.status == "SUCCEEDED"
+    assert retried.attempts == 2
+
+    def no_fetch(request: KisDailyRequest) -> KisQuoteReceipt:
+        raise AssertionError("completed collection must not be fetched again")
+
+    assert (
+        run_collection_job(
+            CollectionJobStore(job_store.database),
+            job,
+            source_policy=policy,
+            permit=permit,
+            fetch=no_fetch,
+            clock=lambda: NOW,
+        )
+        == completed
+    )
     store = LocalPayloadStore(tmp_path / "synthetic.sqlite3")
     batch = ingest_kis_daily(
         receipt,
@@ -213,14 +372,39 @@ def test_validated_synthetic_batch_is_stored_with_observation_and_expiry(
     altered["normalization"]["bars"][0]["price"]["close"] = "106"
     with pytest.raises(ValueError):
         archive_kis_batch(
-            StoredKisBatch.model_validate(altered), store=store,
-            source_policy=policy, permit=permit, now=NOW,
+            StoredKisBatch.model_validate(altered),
+            store=store,
+            source_policy=policy,
+            permit=permit,
+            now=NOW,
         )
     assert archive.expires_at == batch.raw.expires_at
-    assert restore_kis_batch(
-        archive, store=LocalPayloadStore(store.database),
-        source_policy=policy, permit=permit, now=NOW,
-    ) == batch
+    manifest = PayloadManifest(name="synthetic-batch-v1", payload=archive)
+    store.bind_manifest(manifest, now=NOW, source_policy=policy, permit=permit)
+    restarted = LocalPayloadStore(store.database)
+    assert (
+        restarted.resolve_manifest(
+            manifest.name, now=NOW, source_policy=policy, permit=permit
+        )
+        == manifest
+    )
+    with pytest.raises(StorageError, match="immutable"):
+        store.bind_manifest(
+            PayloadManifest(name=manifest.name, payload=batch.raw),
+            now=NOW,
+            source_policy=policy,
+            permit=permit,
+        )
+    assert (
+        restore_kis_batch(
+            archive,
+            store=LocalPayloadStore(store.database),
+            source_policy=policy,
+            permit=permit,
+            now=NOW,
+        )
+        == batch
+    )
     assert batch.matches_supplied_calendar
     assert not batch.source_and_calendar_authenticated
     assert not batch.certified
@@ -250,7 +434,75 @@ def test_validated_synthetic_batch_is_stored_with_observation_and_expiry(
         )
     with pytest.raises(StorageError):
         restore_kis_batch(
-            archive, store=store, source_policy=policy, permit=permit,
+            archive,
+            store=store,
+            source_policy=policy,
+            permit=permit,
             now=archive.expires_at,
         )
     assert store.purge_expired(now=archive.expires_at) == 2
+    with pytest.raises(ValueError, match="snapshot freeze"):
+        publish_kis_snapshot(
+            job_store,
+            (job.job_id,),
+            snapshot_id="future-snapshot",
+            universe=universe,
+            observed_through=NOW - timedelta(seconds=1),
+            now=NOW,
+            source_policy=policy,
+            permit=permit,
+        )
+    with pytest.raises(StorageError):
+        restore_dataset(
+            job_store,
+            "fixture-snapshot",
+            source_policy=policy,
+            permit=permit,
+            now=NOW + timedelta(days=1),
+        )
+    assert completed.archive is not None
+    with sqlite3.connect(job_store.database) as connection:
+        connection.execute(
+            "UPDATE payloads SET payload=? WHERE digest=?",
+            (b"corrupted", completed.archive.digest),
+        )
+    with pytest.raises(StorageError):
+        restore_dataset(
+            job_store, "fixture-snapshot", source_policy=policy, permit=permit, now=NOW
+        )
+
+
+def test_collection_lease_fences_old_workers_and_limits_retries(tmp_path: Path) -> None:
+    store = CollectionJobStore(tmp_path / "jobs.sqlite3")
+    job = CollectionJob(
+        job_id="retry-job",
+        request=_receipt().request,
+        calendar=_calendar(),
+        policy_digest="sha256:" + "a" * 64,
+        permit_digest="sha256:" + "b" * 64,
+        created_at=NOW,
+        max_attempts=2,
+    )
+    assert store.enqueue(job).attempts == 0
+
+    def claim(number: int) -> bool:
+        try:
+            CollectionJobStore(store.database).claim(
+                job.job_id, at=NOW, lease_seconds=1
+            )
+            return True
+        except CollectionJobError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(claim, (1, 2))) == [False, True]
+    first = store.get_job(job.job_id)
+    with pytest.raises(CollectionJobError, match="active"):
+        CollectionJobStore(store.database).claim(job.job_id, at=NOW)
+    later = NOW + timedelta(seconds=1)
+    second = CollectionJobStore(store.database).claim(job.job_id, at=later)
+    with pytest.raises(CollectionJobError, match="stale"):
+        store.finish(first, at=later)
+    assert store.finish(second, at=later).status == "FAILED"
+    with pytest.raises(CollectionJobError, match="budget"):
+        store.claim(job.job_id, at=later)

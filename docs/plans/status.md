@@ -1,18 +1,32 @@
 # Project Status
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
 새 작업 시작 전 [프로젝트 인수인계와 점검표](project-handoff.md)를 먼저 확인합니다.
 
 ## Active Milestone
 
-최신 작업은 [데이터부터 모의주문까지의 연속 개발](data-to-paper-plan.md)입니다.
-로컬 원문 저장·보존, 수집 계획·제공 달력 검증, 영속 paper 예약/대사 장부와 opt-in 합성
-통합 검사를 구현했습니다. 실제 Qlib 피처/LEAN 지표를 네트워크 없는 컨테이너에서 실행해
-5행·신호 일치를 확인했지만, 전체 엔진 어댑터·KRX backtest·실제 수집·paper 연결은 미완료입니다.
-현재 로컬 전체 검사 **630 passed, 2 skipped**, 린트·포맷·타입·스키마·lock 검사가 통과했습니다.
-단계별 재질문 없이 개발을 진행했으며 실제 수집·계좌 접근·주문·새 커밋·푸시는 하지 않았습니다.
-아래 과거 마일스톤/CI 수치는 해당 시점 기록이며 이번 수정의 원격 CI 증거가 아닙니다.
+현재 진행 대상은 [RSI ATS A-E 전체 개발](rsi-development-plan.md)입니다.
+현재 재개 작업에서 DART/RSS/Atom/Naver/공개 Telegram export와 공식 KRX 종목 기본정보 어댑터,
+시점별 규칙 분석, 실제 GP 후보 제안·Ridge 신호 학습, 영속 최종 holdout 분리, JWT 운영 API/화면을
+추가했습니다. 실제 모델/엔진과 합성 장부의 다주기·재개를 실행했으며 A-E 전체는 미완료입니다.
+현재 전체 검사 **677 passed, 2 skipped, 1 warning**, lint/format/types/lock/schema 통과.
+현재 합성 연구 4주기·학습 제안 2회·수집 12주기와 고정 holdout을 실제 엔진으로 검증했습니다.
+DSR 진단도 실제 격리 SciPy로 연결했으며 6개 합성 OOS 관측은 신뢰도 없이 검증 불가로 남깁니다.
+shadow에서는 미승인 후보가 champion 검사로 거절되며 실제 broker 요청은 없습니다.
+승인 경계는 [제안 ADR 0004](../adr/0004-paper-trial-authorization.md), 실제 현재 구현·한계는 RSI 계획을 따릅니다.
+다중 정보원·정보 분석·실제 다주기 연구·시장 검증·운영 서비스는 진행 중이며 아래 이전
+로컬 통합 완료를 그 목표의 완료로 해석하지 않습니다. 완료 기준/새 근거는 새 계획에 기록합니다.
+
+최신 결과는 [연속 개발의 Resumption Results](data-to-paper-plan.md#resumption-results)입니다.
+영속 수집 job/lease/checkpoint·manifest·수정 이력·snapshot/resolver, 실제 Qlib backtest와
+LEAN 전체 Engine.Run 어댑터, KIS paper OAuth/계좌/주문/취소/대사·승인된 복구를 구현했습니다.
+합성 job 5개 -> snapshot -> 실제 엔진 2개 -> MockTransport 주문을 통합·반복 검증했습니다.
+현재 전체 검사 **651 passed, 2 skipped**, 린트·포맷·타입·스키마·lock 통과.
+지원하는 단일 종목 TREND 합성 모델의 로컬 개발 경로 완료이며 실제 운영 인증은 아닙니다.
+실제 수집·계좌·주문·예약·배포·커밋·푸시는 하지 않았습니다. LEAN 전이 의존성 high/critical
+경고, 실제 KRX 모델·다종목/일반 연구, 인증된 운영 서비스·실제 API·20개 paper 세션은 남습니다.
+이번 시작 시 사용자 미커밋 변경과 기존 `3817b42`를 보존했습니다. 아래는 과거 checkpoint입니다.
 
 Working toward predeployment exit gates in `docs/plans/predeployment.md`.
 The runnable local milestone is now synthetic price normalization, native trend
@@ -284,6 +298,11 @@ per-decision input bundle.
 
 ## Next Executable Step
 
+2026-10-02: 이번 로컬 개발 범위의 검증은 완료했습니다. 재현은 `research/README.md`의
+Full Pipeline을 따릅니다. 실제 실행은 명시적으로 제외됐으며 활성화 승인이 아닙니다.
+운영 전 미구현·미검증 항목과 보안 경고는 현재 연속 개발 기록을 기준으로 확인합니다.
+다음 문단은 재개 전 상태 기록이며 이미 구현한 job/전체 엔진/paper 어댑터를 다시 만들지 않습니다.
+
 The first main-push CI/CD run, OIDC exchange and synthetic-only publication are
 verified by run 36865676575 at commit 3293182. Do not repeat provisioning or
 credential creation. Additional CI/CD runtime maintenance, PR/manual-trigger and
@@ -296,7 +315,7 @@ and collection policy before another real-data collection. Implement a trusted
 calendar, corporate-action resolution and explicit revision/provenance mapping
 from normalized KIS batches to snapshots without backdating observed availability.
 The historical production smoke did not retain a replayable source fixture. New local
-storage/ingestion primitives do not yet build normalized snapshot manifests. Fixed
+storage/ingestion primitives restore raw-bound batches but do not yet build snapshot manifests. Fixed
 Qlib-feature/LEAN-indicator container probes pass, but full engine evaluation adapters
 remain unfinished. Then build a verified real-data dataset and actual Qlib/LEAN
 certification. KIS paper transport,

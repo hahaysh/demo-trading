@@ -1,4 +1,74 @@
-# Isolated Component Probes
+# Isolated Engine Development
+
+## RSI Workflow
+
+A-E 전체 개발은 [현재 계획](../docs/plans/rsi-development-plan.md)의 행별 상태를 확인합니다.
+아래는 합성 수집·실제 학습·실제 엔진·운영 장부를 연결하는 검증 명령이며 실제 수집/주문을 실행하지 않습니다.
+
+```powershell
+./research/engines/build.ps1
+docker build -t ats-rsi:dev research/rsi
+$engine = docker image inspect ats-backtest-engines:dev --format '{{.Id}}'
+$model = docker image inspect ats-rsi:dev --format '{{.Id}}'
+uv run --frozen python -m ats.rsi_workflow --root .local/my-rsi --engine-image $engine --proposer-image $model --signal-model RIDGE --case research/rsi/market-case.json --cycles 4
+uv run --frozen python -m ats.research_validation --root .local/my-rsi --market research/rsi/holdout-case.json --sequence 0
+uv run --frozen python -m ats.operator --root .local/my-rsi --research .local/my-rsi/research.sqlite3 --port 8767
+```
+
+같은 root와 동일 runtime/model/case는 재개할 수 있습니다. 코드/시장 자료가 바뀌면 기존 campaign을
+수정하지 말고 새 버전을 만들어야 합니다. holdout 시작 후에는 같은 campaign의 추가 탐색이 거절됩니다.
+학습 점수는 research_trials, 최종 검증은 research_validation에 별도로 저장합니다.
+OOS 하한은 정규 근사·다중 탐색 보정 진단이며 DSR 인증이 아닙니다. 합성 달력은 실제 KRX 달력이 아닙니다.
+
+운영 화면은 localhost 전용 합성 인증 서버입니다. `/fixture/session`은 공개된 시험용 키의 임시
+토큰을 반환하고 `/fixture/sign`은 시험 명령을 바인딩합니다. 실제 비밀이나 계좌를 넣지 마세요.
+이 모드는 인터넷에 게시하거나 운영 인증으로 사용하면 안 됩니다. 실제 app factory는 별도의
+trusted issuer/public key/identity 목록과 검증된 promotion evidence provider를 요구합니다.
+화면의 검토 수락은 전략 승격이 아니며, 선택된 전략도 broker를 자동 활성화하지 않습니다.
+미해결 paper 시험 권한은 [제안 ADR](../docs/adr/0004-paper-trial-authorization.md)에 있으며 미승인입니다.
+
+기존 단일 종목/지표 probe의 과거 증거를 현재 RSI 전체 완료로 해석하지 않습니다.
+
+## Full Pipeline
+
+2026-10-02에 전체 엔진 연결을 추가했습니다. 기존 지표 probe와 별개로 Qlib의 실제
+`SimulatorExecutor`와 LEAN의 실제 `Engine.Run`/파일 피드/백테스트 브로커를 호출합니다.
+아래 명령은 합성 KIS 형식 자료의 job·manifest·snapshot을 만들고 두 엔진의 기존
+`EvaluationRequest/Output` 어댑터를 실행한 뒤 MockTransport 모의주문을 검사합니다.
+실제 데이터·계좌·주문·배포·전략 승격은 수행하지 않습니다.
+
+준비물: Python 3.11/프로젝트 uv 환경, PowerShell 7, 실행 중인 로컬 Linux Docker engine.
+의존성 빌드에는 공개 패키지 다운로드가 필요하며 전략 실행 container는 네트워크가 없습니다.
+저장소 루트에서 새 출력 디렉터리를 지정합니다.
+
+```powershell
+./research/engines/build.ps1
+$image = docker image inspect ats-backtest-engines:dev --format '{{.Id}}'
+uv run --frozen python -m ats.pipeline_demo --output .local/my-full-pipeline --image $image
+```
+
+생성된 `report.json`, 두 evaluation JSON, SQLite, `evaluations/sha256/`의 입력·결과를
+함께 확인합니다. worker 코드/lock/input/image/strategy/snapshot/output을 바인딩하고,
+엔진 체결·비용·평가자산을 호스트에서 독립 계산으로 대조합니다. 공통 image를 두 엔진에
+사용해 기존 불변 전략의 runtime 계약을 유지합니다. 영수증은 서명된 인증서가 아닙니다.
+
+지원 사례는 합성 단일 종목 TREND, 고정 수량, 전일 종가 신호·다음 시가 체결입니다.
+수수료 0.1%, 매도 총비용 0.3%, 슬리피지 0, 현금 benchmark, 합성 달력을 명시합니다.
+관측은 각 세션 다음 날 06:00 KST로 두며 과거 가격을 과거에 알았다고 소급하지 않습니다.
+이 테스트의 OOS 필드는 고정 전략/no-training 합성 프로토콜 수치입니다. 실자료 성과 인증,
+다종목 학습/최적화 또는 실제 KRX 체결 모델 완성을 뜻하지 않습니다.
+
+런타임은 host mount/네트워크 없이 UID 65532, read-only, capability 제거, CPU 1,
+메모리 2GB, PID 128, tmpfs 256MB, 내부 120초/호스트 150초로 제한합니다. adapter는 로컬
+Docker socket과 image ID만 사용하고 자동 pull을 금지합니다. 빌드 중간 태그는 image ID에서
+만들고 일치를 확인합니다. image/캐시는 로컬에 남습니다.
+
+**보안 경고:** LEAN 전이 의존성에 NuGet high/critical 취약점 경고가 있습니다.
+네트워크 차단 합성 개발 실행이 이를 해결하지 않으며 이 이미지를 운영에 사용하지 마세요.
+상세 패키지·한계는 [개발 기록](../docs/plans/data-to-paper-plan.md)의 Current Limits에 있습니다.
+기존 CI에 무거운 engine image 빌드를 자동 추가하지 않았고 cloud에 게시하지 않았습니다.
+
+## Component Probes
 
 실제 Qlib 피처와 LEAN 지표 라이브러리를 고정된 합성 일봉 5개로 호출하는 로컬 검사입니다.
 Qlib 연구 backtest나 LEAN 전체 엔진, KRX 체결 모델, 표본 외 평가, 전략 인증은 아닙니다.
@@ -39,8 +109,7 @@ docker build --target lock --output type=local,dest=research/lean research/lean
 
 ## Limits
 
-- 입력은 두 프로그램 내부의 동일한 합성 상수입니다. 저장된 실제 KIS batch나
-  point-in-time snapshot을 이 프로그램들에 연결하는 어댑터는 아직 없습니다.
+- 이 과거 probe의 입력은 내부 합성 상수입니다. 위 Full Pipeline의 snapshot 연결과 구분합니다.
 - Qlib는 합성 binary provider의 close와 2일 평균만 읽습니다. 실제 KRX 가격 정밀도,
   조정주가·기업행동·warmup·수수료·거래 달력의 올바름을 입증하지 않습니다.
 - LEAN은 무료 오픈소스 지표 구성요소의 `SimpleMovingAverage`를 호출합니다.

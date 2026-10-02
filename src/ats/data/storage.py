@@ -49,6 +49,11 @@ class StoredPayload(FrozenModel):
     byte_count: Annotated[int, Field(strict=True, ge=1)]
 
 
+class PayloadManifest(FrozenModel):
+    name: Identifier
+    payload: StoredPayload
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise StorageError("storage timestamps must be timezone-aware")
@@ -113,6 +118,33 @@ class LocalPayloadStore:
                 ):
                     raise StorageError("storage reparse points are forbidden")
 
+    def check_authorization(
+        self, *, now: datetime, source_policy: SourceAllowlist, permit: StoragePermit
+    ) -> None:
+        _deadline(permit, source_policy, _utc(now), _utc(now))
+
+    def receipt_for_digest(
+        self,
+        digest: str,
+        *,
+        now: datetime,
+        source_policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> StoredPayload | None:
+        self.check_authorization(now=now, source_policy=source_policy, permit=permit)
+        with self._connection(create=True) as connection:
+            row = connection.execute(
+                "SELECT receipt FROM payloads WHERE source_id=? AND digest=?",
+                (permit.source_id, digest),
+            ).fetchone()
+        if row is None:
+            return None
+        receipt = StoredPayload.model_validate_json(row["receipt"])
+        if receipt.digest != digest:
+            raise StorageError("payload lookup identity mismatch")
+        self.read(receipt, now=now, source_policy=source_policy, permit=permit)
+        return receipt
+
     @contextmanager
     def _connection(
         self, *, create: bool = False
@@ -125,6 +157,7 @@ class LocalPayloadStore:
         connection = sqlite3.connect(self.database, timeout=5)
         connection.row_factory = sqlite3.Row
         try:
+            connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA secure_delete=ON")
             connection.execute("BEGIN IMMEDIATE")
             if create:
@@ -133,6 +166,12 @@ class LocalPayloadStore:
                     "source_id TEXT NOT NULL, digest TEXT NOT NULL, "
                     "receipt TEXT NOT NULL, expires_at TEXT NOT NULL, "
                     "payload BLOB NOT NULL, PRIMARY KEY(source_id, digest))"
+                )
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS manifests (name TEXT PRIMARY KEY, "
+                    "source_id TEXT NOT NULL, digest TEXT NOT NULL, record TEXT NOT NULL, "
+                    "FOREIGN KEY(source_id,digest) REFERENCES payloads(source_id,digest) "
+                    "ON DELETE CASCADE)"
                 )
             yield connection
             connection.commit()
@@ -236,6 +275,55 @@ class LocalPayloadStore:
             ):
                 raise StorageError("stored payload integrity check failed")
             return payload
+
+    def bind_manifest(
+        self,
+        manifest: PayloadManifest,
+        *,
+        now: datetime,
+        source_policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> PayloadManifest:
+        manifest = PayloadManifest.model_validate(manifest.model_dump())
+        self.read(manifest.payload, now=now, source_policy=source_policy, permit=permit)
+        with self._connection(create=True) as connection:
+            encoded = manifest.model_dump_json()
+            previous = connection.execute(
+                "SELECT record FROM manifests WHERE name=?", (manifest.name,)
+            ).fetchone()
+            if previous is not None and previous["record"] != encoded:
+                raise StorageError("manifest is immutable; use a new version name")
+            connection.execute(
+                "INSERT OR IGNORE INTO manifests VALUES (?, ?, ?, ?)",
+                (
+                    manifest.name,
+                    manifest.payload.source_id,
+                    manifest.payload.digest,
+                    encoded,
+                ),
+            )
+        return manifest
+
+    def resolve_manifest(
+        self,
+        name: str,
+        *,
+        now: datetime,
+        source_policy: SourceAllowlist,
+        permit: StoragePermit,
+    ) -> PayloadManifest:
+        _deadline(permit, source_policy, _utc(now), _utc(now))
+        with self._connection(create=True) as connection:
+            row = connection.execute(
+                "SELECT record FROM manifests WHERE name=?", (name,)
+            ).fetchone()
+            if row is None:
+                raise StorageError("manifest is missing or expired")
+            manifest = PayloadManifest.model_validate_json(row["record"])
+            if manifest.name != name:
+                raise StorageError("manifest identity changed")
+        self.read(manifest.payload, now=now, source_policy=source_policy, permit=permit)
+        return manifest
 
     def purge_expired(self, *, now: datetime) -> int:
         now = _utc(now)

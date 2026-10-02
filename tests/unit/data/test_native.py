@@ -6,6 +6,12 @@ from uuid import UUID
 import pytest
 
 from ats.backtest.candidates import compare_candidates
+from ats.backtest.engines import (
+    EngineCase,
+    EngineResult,
+    TargetEngineCase,
+    validate_engine_result,
+)
 from ats.backtest.native import SimulationAssumptions, run_native_backtest
 from ats.data.artifacts import LocalArtifactResolver
 from ats.data.replay import InputReplayRequest
@@ -14,6 +20,52 @@ from ats.domain.data import DataSnapshot, PointInTimeRecord, UniverseMembershipM
 from ats.domain.prices import DailyPrice
 from ats.domain.strategy import ArtifactRef, StrategySpec
 from ats.domain.universe import UniverseMembershipArtifact
+
+
+def test_versioned_target_stream_rejects_same_open_decisions() -> None:
+    from datetime import time
+
+    from ats.domain.prices import SEOUL
+
+    case = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    payload = {
+        **case.model_dump(),
+        "targets": (0, 0, 10, 0, 0),
+        "decided_at": tuple(
+            datetime.combine(session, time(6), tzinfo=SEOUL) for session in case.dates
+        ),
+        "signal_artifact": {
+            "artifact_id": "fixture-signal",
+            "version": "1",
+            "digest": "sha256:" + "a" * 64,
+        },
+    }
+    assert TargetEngineCase.model_validate(payload).targets[2] == 10
+    payload["decided_at"] = tuple(
+        datetime.combine(session, time(9), tzinfo=SEOUL) for session in case.dates
+    )
+    with pytest.raises(ValueError, match="unavailable"):
+        TargetEngineCase.model_validate(payload)
+
+
+def test_purged_folds_do_not_train_on_future_labels_and_correct_search_bias() -> None:
+    from ats.backtest.portfolio import corrected_mean_lower_bound, purged_folds
+
+    folds = purged_folds(
+        observations=100, minimum_train=30, test_size=10, label_horizon=3, embargo=2
+    )
+    assert len(folds) >= 2
+    assert all(fold.train_end + 3 + 2 <= fold.test_start for fold in folds)
+    assert all(
+        previous.test_end + 2 <= current.test_start
+        for previous, current in zip(folds, folds[1:], strict=False)
+    )
+    returns = (0.01, -0.02, 0.03, 0.015, 0.02)
+    assert corrected_mean_lower_bound(returns, trials=100) < corrected_mean_lower_bound(
+        returns, trials=1
+    )
 
 
 def _fixture(
@@ -283,6 +335,49 @@ def test_data_to_paper_smoke_is_offline_reproducible_and_not_certified(
     }
     assert first["deployment_ready"] is False
     assert first["promoted"] is False
+
+
+def test_full_engine_result_validation_rejects_lookahead_and_bad_cash() -> None:
+    case = EngineCase.model_validate_json(
+        Path("research/engines/case.json").read_bytes()
+    )
+    result = EngineResult.model_validate(
+        {
+            "engine": "QLIB",
+            "version": "0.9.7",
+            "full_backtest": True,
+            "certified": False,
+            "input_sha256": "a" * 64,
+            "lock_sha256": "b" * 64,
+            "code_sha256": "c" * 64,
+            "fills": [
+                {
+                    "date": "2026-09-23",
+                    "side": "BUY",
+                    "quantity": 10,
+                    "price": 100,
+                    "cost": 1,
+                },
+                {
+                    "date": "2026-09-24",
+                    "side": "SELL",
+                    "quantity": 10,
+                    "price": 100,
+                    "cost": 3,
+                },
+            ],
+            "equity": [100000, 100000, 99899, 99996, 99996],
+        }
+    )
+    validate_engine_result(case, result)
+    with pytest.raises(ValueError, match="conservation"):
+        validate_engine_result(
+            case, result.model_copy(update={"equity": (100000,) * 5})
+        )
+    with pytest.raises(ValueError, match="fill"):
+        validate_engine_result(
+            case, result.model_copy(update={"fills": result.fills[:1]})
+        )
 
 
 @pytest.mark.parametrize("lookbacks", [(3, 3), (3, 4, 5), (), (True,), (100,)])

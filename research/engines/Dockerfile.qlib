@@ -1,0 +1,4 @@
+ARG QLIB_BASE=ats-local-build:required
+FROM ${QLIB_BASE}
+COPY qlib_run.py /opt/qlib_run.py
+ENTRYPOINT ["timeout", "120s", "python", "/opt/qlib_run.py"]

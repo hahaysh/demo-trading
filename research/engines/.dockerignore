@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!Dockerfile.qlib
+!Dockerfile.lean
+!qlib_run.py
+!Runner.csproj
+!LeanRunner.cs
+!packages.lock.json

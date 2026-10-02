@@ -54,6 +54,8 @@ class PaperOrderRecord(FrozenModel):
     broker_order_id: Identifier | None = None
     updated_at: AwareDatetime
     reconciliation: ArtifactRef | None = None
+    transmission_started: bool = False
+    recovery_approval: ArtifactRef | None = None
 
     @model_validator(mode="after")
     def validate_record(self) -> Self:
@@ -120,6 +122,10 @@ class PaperOrderLedger:
                 "CREATE TABLE IF NOT EXISTS halts (account_id TEXT PRIMARY KEY, reason TEXT NOT NULL)"
             )
             connection.execute(
+                "CREATE TABLE IF NOT EXISTS cancellation_claims (account_id TEXT, client_id TEXT, "
+                "state TEXT NOT NULL, PRIMARY KEY(account_id,client_id))"
+            )
+            connection.execute(
                 "CREATE TABLE IF NOT EXISTS events (sequence INTEGER PRIMARY KEY, "
                 "account_id TEXT NOT NULL, client_id TEXT NOT NULL, record TEXT NOT NULL)"
             )
@@ -178,6 +184,11 @@ class PaperOrderLedger:
             raise PaperLedgerError(
                 "account is halted; authenticated operator recovery required"
             )
+        if connection.execute(
+            "SELECT 1 FROM cancellation_claims WHERE account_id=? AND state='PENDING'",
+            (state.account_id,),
+        ).fetchone():
+            raise PaperLedgerError("unresolved cancellation blocks new work")
         records = [
             PaperOrderRecord.model_validate_json(row[0])
             for row in connection.execute(
@@ -229,6 +240,7 @@ class PaperOrderLedger:
     ) -> PaperOrderRecord:
         intent = OrderIntent.model_validate(intent.model_dump())
         at = _utc(at)
+        self._persist_risk_stop(policy, state)
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT record FROM orders WHERE account_id=? AND client_id=?",
@@ -266,6 +278,7 @@ class PaperOrderLedger:
         assessor: ArtifactRef,
     ) -> PaperOrderRecord:
         at = _utc(at)
+        self._persist_risk_stop(policy, state)
         with self._transaction() as connection:
             record = self._get(connection, account_id, client_order_id)
             if record.status is not PaperOrderStatus.PREPARED or at < record.updated_at:
@@ -288,6 +301,144 @@ class PaperOrderLedger:
             )
             self._write(connection, claimed)
             return claimed
+
+    def start_transmission(
+        self, account_id: str, client_order_id: str, policy: RiskPolicy, *, at: datetime
+    ) -> PaperOrderRecord:
+        at = _utc(at)
+        with self._transaction() as connection:
+            record = self._get(connection, account_id, client_order_id)
+            if connection.execute(
+                "SELECT 1 FROM halts WHERE account_id=?", (account_id,)
+            ).fetchone():
+                raise PaperLedgerError("account halted before transmission")
+            if connection.execute(
+                "SELECT 1 FROM cancellation_claims WHERE account_id=? AND state='PENDING'",
+                (account_id,),
+            ).fetchone():
+                raise PaperLedgerError("cancellation pending before transmission")
+            if (
+                record.status is not PaperOrderStatus.SUBMITTING
+                or record.transmission_started
+                or at < record.updated_at
+            ):
+                raise PaperLedgerError(
+                    "transmission is unavailable or already consumed"
+                )
+            record.decision.validate_for_intent(record.intent, policy, at=at)
+            started = PaperOrderRecord.model_validate(
+                {**record.model_dump(), "transmission_started": True, "updated_at": at}
+            )
+            self._write(connection, started)
+            return started
+
+    def claim_cancellation(
+        self, account_id: str, client_order_id: str, *, at: datetime
+    ) -> PaperOrderRecord:
+        at = _utc(at)
+        with self._transaction() as connection:
+            record = self._get(connection, account_id, client_order_id)
+            if (
+                record.status
+                not in (PaperOrderStatus.ACCEPTED, PaperOrderStatus.PARTIALLY_FILLED)
+                or at < record.updated_at
+            ):
+                raise PaperLedgerError("only a confirmed open order can be canceled")
+            if connection.execute(
+                "SELECT 1 FROM cancellation_claims WHERE account_id=? AND client_id=?",
+                (account_id, client_order_id),
+            ).fetchone():
+                raise PaperLedgerError(
+                    "cancellation already claimed; reconcile instead of resending"
+                )
+            connection.execute(
+                "INSERT INTO cancellation_claims VALUES (?, ?, 'PENDING')",
+                (account_id, client_order_id),
+            )
+            return record
+
+    def halt(self, account_id: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO halts VALUES (?, 'BROKER_RECONCILIATION')",
+                (account_id,),
+            )
+
+    def _persist_risk_stop(self, policy: RiskPolicy, state: RiskState) -> None:
+        policy = RiskPolicy.model_validate(policy.model_dump())
+        state = RiskState.model_validate(state.model_dump())
+        if (
+            state.kill_switch_active
+            or state.daily_loss_fraction
+            >= Decimal(str(policy.limits.daily_portfolio_loss_halt))
+            or state.drawdown_fraction
+            >= Decimal(str(policy.limits.portfolio_drawdown_halt))
+        ):
+            with self._transaction() as connection:
+                connection.execute(
+                    "INSERT INTO halts VALUES (?, 'RISK_STOP') ON CONFLICT(account_id) DO UPDATE SET reason='RISK_STOP'",
+                    (state.account_id,),
+                )
+            raise PaperLedgerError(
+                "risk policy denies submission; persistent risk halt requires operator review"
+            )
+
+    def record_recovery(
+        self,
+        account_id: str,
+        client_order_id: str,
+        approval: ArtifactRef,
+        *,
+        resume: bool,
+    ) -> PaperOrderRecord:
+        approval = ArtifactRef.model_validate(approval.model_dump())
+        with self._transaction() as connection:
+            record = self._get(connection, account_id, client_order_id)
+            if (
+                record.status
+                in (
+                    PaperOrderStatus.PREPARED,
+                    PaperOrderStatus.SUBMITTING,
+                    PaperOrderStatus.UNKNOWN,
+                )
+                or record.reconciliation is None
+            ):
+                raise PaperLedgerError(
+                    "recovery requires confirmed broker reconciliation"
+                )
+            if resume:
+                halt = connection.execute(
+                    "SELECT reason FROM halts WHERE account_id=?", (account_id,)
+                ).fetchone()
+                if halt is not None and halt[0] == "RISK_STOP":
+                    raise PaperLedgerError(
+                        "broker recovery cannot clear a portfolio risk stop"
+                    )
+                records = [
+                    PaperOrderRecord.model_validate_json(row[0])
+                    for row in connection.execute(
+                        "SELECT record FROM orders WHERE account_id=?", (account_id,)
+                    )
+                ]
+                if any(
+                    item.status
+                    in (PaperOrderStatus.SUBMITTING, PaperOrderStatus.UNKNOWN)
+                    for item in records
+                ):
+                    raise PaperLedgerError("other uncertain orders block recovery")
+                if connection.execute(
+                    "SELECT 1 FROM cancellation_claims WHERE account_id=? AND state='PENDING'",
+                    (account_id,),
+                ).fetchone():
+                    raise PaperLedgerError("uncertain cancellation blocks recovery")
+                connection.execute(
+                    "DELETE FROM halts WHERE account_id=?", (account_id,)
+                )
+            recovered = PaperOrderRecord.model_validate(
+                {**record.model_dump(), "recovery_approval": approval}
+            )
+            self._write(connection, recovered)
+            return recovered
 
     def expire_prepared(self, account_id: str, *, at: datetime) -> int:
         at = _utc(at)
@@ -359,6 +510,14 @@ class PaperOrderLedger:
                     "reconciliation evidence reused with different data"
                 )
             if (
+                record.status in _TERMINAL
+                and record.status.value == update.status
+                and record.filled_quantity == update.filled_quantity
+                and record.broker_order_id == update.broker_order_id
+                and update.observed_at >= record.updated_at
+            ):
+                return record
+            if (
                 record.status is PaperOrderStatus.PREPARED
                 or record.status in _TERMINAL
                 or update.observed_at < record.updated_at
@@ -395,8 +554,23 @@ class PaperOrderLedger:
                 }
             )
             self._write(connection, reconciled)
+            if reconciled.status in _TERMINAL:
+                connection.execute(
+                    "UPDATE cancellation_claims SET state='RESOLVED' WHERE account_id=? AND client_id=?",
+                    (update.account_id, update.client_order_id),
+                )
             return reconciled
 
     def get(self, account_id: str, client_order_id: str) -> PaperOrderRecord:
         with self._transaction() as connection:
             return self._get(connection, account_id, client_order_id)
+
+    def account_orders(self, account_id: str) -> tuple[PaperOrderRecord, ...]:
+        with self._transaction() as connection:
+            return tuple(
+                PaperOrderRecord.model_validate_json(row[0])
+                for row in connection.execute(
+                    "SELECT record FROM orders WHERE account_id=? ORDER BY client_id",
+                    (account_id,),
+                )
+            )

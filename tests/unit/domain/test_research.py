@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -646,6 +647,85 @@ def test_promotion_receipt_round_trip_and_resolved_evidence() -> None:
     rebuilt.validate_evidence(*evidence)
     with pytest.raises(ValidationError):
         rebuilt.review.__setattr__("strategy_digest", OTHER_DIGEST)
+
+
+def test_authenticated_selection_is_atomic_and_never_activates_broker(
+    tmp_path: Path,
+) -> None:
+    from fastapi import HTTPException
+
+    from ats.operator import (
+        OperatorCommand,
+        OperatorIdentity,
+        OperatorStore,
+        PromotionBundle,
+    )
+
+    policy, results, runs = _promotion_evidence()
+    decision = PromotionDecision.model_validate(
+        _promotion_payload(policy, results, runs)
+    )
+    bundle = PromotionBundle(
+        strategy=_strategy(),
+        decision=decision,
+        policy=policy,
+        evaluations=results,
+        runs=runs,
+        verified_reports=(ARTIFACT.digest,),
+        paper_sessions=tuple(f"2026-09-{day:02d}" for day in range(1, 21)),
+    )
+    store = OperatorStore(tmp_path / "operator.sqlite3")
+    target = "synthetic-strategy"
+    digest = bundle.strategy.content_digest()
+    store.register_review(target, digest)
+    actor = OperatorIdentity(subject="test-reviewer", role="OPERATOR", human=True)
+    request = OperatorCommand.model_validate(
+        {
+            "request_id": UUID(int=101),
+            "action": "PROMOTE",
+            "target": target,
+            "target_digest": digest,
+            "expected_revision": 0,
+            "reason": "Synthetic governance fixture only",
+        }
+    )
+    claims = {
+        "jti": "synthetic-command-1",
+        "action": "PROMOTE",
+        "target_digest": digest,
+        "command_digest": evidence_digest(request),
+        "expected_champion_digest": None,
+    }
+    insufficient = bundle.model_copy(
+        update={"paper_sessions": bundle.paper_sessions[:19]}
+    )
+    with pytest.raises(HTTPException):
+        store.command(request, actor, claims, promotion=insufficient)
+    selected = store.command(request, actor, claims, promotion=bundle)
+    assert selected["status"] == "SELECTED_NOT_ACTIVATED"
+    assert store.snapshot()["broker_execution_enabled"] is False
+    with pytest.raises(HTTPException):
+        store.command(request, actor, claims, promotion=bundle)
+    rollback = request.model_copy(
+        update={
+            "request_id": UUID(int=102),
+            "action": "ROLLBACK",
+            "expected_revision": 1,
+        }
+    )
+    rolled = store.command(
+        rollback,
+        actor,
+        {
+            "jti": "synthetic-command-2",
+            "action": "ROLLBACK",
+            "target_digest": digest,
+            "command_digest": evidence_digest(rollback),
+            "expected_champion_digest": digest,
+        },
+        promotion=bundle,
+    )
+    assert rolled["status"] == "SELECTED_NOT_ACTIVATED"
 
 
 @pytest.mark.parametrize("gate", list(PromotionGate))

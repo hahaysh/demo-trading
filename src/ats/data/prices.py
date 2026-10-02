@@ -196,7 +196,7 @@ def normalize_daily_price(
     resolver: LocalArtifactResolver, record: PointInTimeRecord
 ) -> DailyPrice:
     record = PointInTimeRecord.model_validate(record.model_dump())
-    price = DailyPrice.model_validate_json(resolver.read_raw_payload(record))
+    price = DailyPrice.model_validate_json(resolver.read_normalized_payload(record))
     if price.instrument_id != record.instrument_id:
         raise ValueError("daily price instrument does not match provenance")
     if record.effective_at is None or record.effective_at != price.session_close:

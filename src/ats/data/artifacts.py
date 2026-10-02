@@ -79,6 +79,9 @@ class LocalArtifactResolver:
         record = PointInTimeRecord.model_validate(record.model_dump())
         return self.read_digest(record.raw_payload_digest)
 
+    def read_normalized_payload(self, record: PointInTimeRecord) -> bytes:
+        return self.read_raw_payload(record)
+
     def read_revision_evidence(self, order: RevisionOrder) -> bytes:
         order = RevisionOrder.model_validate(order.model_dump())
         return self.read_artifact(order.evidence)

@@ -85,6 +85,23 @@ uv run --frozen python -m ats.demo --output .local/my-data-paper-run --exercise-
 이 합성 JSON 형식 자체가 KIS/DART 어댑터는 아닙니다. 거래일·기업행사·다종목 처리와
 독립 엔진 검증은 별도이며, 예제는 제공된 거래 시각과 합성 비용 가정을 사용합니다.
 
+## Full Data-to-Paper Development
+
+재시작 수집 job·manifest·수정 snapshot, 실제 Qlib/LEAN 전체 엔진 평가와 모의 HTTP 주문을
+연결한 합성 통합 예제입니다. 실행 중인 로컬 Linux Docker와 PowerShell 7이 필요합니다.
+
+```powershell
+./research/engines/build.ps1
+$image = docker image inspect ats-backtest-engines:dev --format '{{.Id}}'
+uv run --frozen python -m ats.pipeline_demo --output .local/my-full-pipeline --image $image
+```
+
+새 출력 디렉터리만 사용하며 실제 데이터·계좌·주문·배포에는 연결하지 않습니다.
+엔진은 실제 라이브러리/전체 엔진을 실행하지만 broker는 MockTransport입니다.
+지원하는 단일 종목 합성 모델, 의존성 보안 경고와 운영 전 조건은
+[연구 안내](research/README.md#full-pipeline)와 [개발 기록](docs/plans/data-to-paper-plan.md#resumption-results)에 있습니다.
+이 개발 검증을 실제 투자 성과 인증이나 실거래 활성화 승인으로 사용하지 마세요.
+
 ## KIS Production Quotations Only
 
 `ats.data.kis.KisQuoteClient`는 토큰 발급과 과거 일봉 조회만 지원합니다.
