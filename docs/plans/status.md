@@ -18,11 +18,21 @@ shadow에서는 미승인 후보가 champion 검사로 거절되며 실제 broke
 다중 정보원·정보 분석·실제 다주기 연구·시장 검증·운영 서비스는 진행 중이며 아래 이전
 로컬 통합 완료를 그 목표의 완료로 해석하지 않습니다. 완료 기준/새 근거는 새 계획에 기록합니다.
 
-최신 결과는 [연속 개발의 Resumption Results](data-to-paper-plan.md#resumption-results)입니다.
+2026-10-02 후속 상태 점검에서는 집중 테스트 **22 passed, 1 warning**, 저장된 holdout 엔진
+결과 8건과 해시 일치를 재확인했습니다. 위 677개는 앞선 전체 실행 기록이며 합산하지 않습니다.
+이후 정리 요청으로 [진행 요약](rsi-development-plan.md#progress-summary),
+[잔여 작업 W1-W8](rsi-development-plan.md#work-queue),
+[향후 고려사항](rsi-development-plan.md#further-considerations)을 정리했습니다.
+할 일 개수는 전체 A-E 완료율이 아닙니다. 기반 검증 완료·남은 개발·승인 경계를 분리하며
+이번 문서 정리로 실제 수집·계좌/주문·예약·배포·Git 게시를 승인하거나 실행하지 않았습니다.
+
+## Historical Data-to-Paper Milestone
+
+이전 결과는 [연속 개발의 Resumption Results](data-to-paper-plan.md#resumption-results)입니다.
 영속 수집 job/lease/checkpoint·manifest·수정 이력·snapshot/resolver, 실제 Qlib backtest와
 LEAN 전체 Engine.Run 어댑터, KIS paper OAuth/계좌/주문/취소/대사·승인된 복구를 구현했습니다.
 합성 job 5개 -> snapshot -> 실제 엔진 2개 -> MockTransport 주문을 통합·반복 검증했습니다.
-현재 전체 검사 **651 passed, 2 skipped**, 린트·포맷·타입·스키마·lock 통과.
+당시 전체 검사 **651 passed, 2 skipped**, 린트·포맷·타입·스키마·lock 통과.
 지원하는 단일 종목 TREND 합성 모델의 로컬 개발 경로 완료이며 실제 운영 인증은 아닙니다.
 실제 수집·계좌·주문·예약·배포·커밋·푸시는 하지 않았습니다. LEAN 전이 의존성 high/critical
 경고, 실제 KRX 모델·다종목/일반 연구, 인증된 운영 서비스·실제 API·20개 paper 세션은 남습니다.
